@@ -1,0 +1,42 @@
+cmake_minimum_required(VERSION 3.10)
+project(ChatAppCLI)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+set(INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
+set(SRC_DIR ${CMAKE_SOURCE_DIR}/src)
+
+
+# Add include directory for all targets
+include_directories(${INCLUDE_DIR})
+
+set(COMMON_SOURCES
+    ${SRC_DIR}/User.cpp
+    ${SRC_DIR}/Message.cpp
+    ${SRC_DIR}/TextMessage.cpp
+    ${SRC_DIR}/ChatRoom.cpp
+    ${SRC_DIR}/Server.cpp
+    ${SRC_DIR}/NetworkManager.cpp
+    ${SRC_DIR}/Serializer.cpp
+    # ${SRC_DIR}/PrivateChatRoom.cpp
+    # ${SRC_DIR}/GroupChatRoom.cpp
+)
+
+
+# Server executable
+add_executable(server
+    ${COMMON_SOURCES}
+    ${CMAKE_SOURCE_DIR}/server/main.cpp
+)
+
+# Client executable
+add_executable(client
+    ${CMAKE_SOURCE_DIR}/client/main.cpp
+    ${SRC_DIR}/Client.cpp
+    ${SRC_DIR}/NetworkManager.cpp
+    ${SRC_DIR}/Serializer.cpp
+    ${INCLUDE_DIR}/PosixNetworkConnection.h
+)
+
+target_include_directories(client PRIVATE ${INCLUDE_DIR})

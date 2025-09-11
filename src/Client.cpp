@@ -1,0 +1,144 @@
+#include "Client.h"
+#include "Serializer.h"
+#include <iostream>
+#include <thread>
+#include <atomic>
+
+static std::atomic<bool> shouldExit{false};
+
+Client::Client(const std::string &name, NetworkManager* netManager)
+    : username(name), netManager_(netManager), sock_(-1), userID(-1), inChatroom(false), inDM(false) {}
+
+Client::~Client() {}
+
+void Client::start(std::string& ip, int port) {
+    Client::connect(ip,port);
+    
+    // Register with the server and receive a user ID.
+    netManager_->sendMessage(sock_, username);
+    std::string idStr = netManager_->receiveMessage(sock_);
+    try {
+        userID = std::stoi(idStr);
+        std::cout << "Received userID from server: " << userID << std::endl;
+    } catch (...) {
+        std::cerr << "Failed to receive userID from server. Exiting." << std::endl;
+        exit(1);
+    }
+
+    std::thread listener(&Client::listenThread, this);
+    
+    std::cout << ">> ";
+    std::cout.flush();
+
+    // Main loop for handling user input.
+    while (!shouldExit.load()) {
+        std::string content;
+        std::getline(std::cin, content);
+
+        if (shouldExit.load()) break;
+
+        if (!content.empty() && content[0] == '/') {
+            // Handle commands.
+            size_t spacePos = content.find(' ');
+            std::string command = (spacePos == std::string::npos) ? content.substr(1) : content.substr(1, spacePos - 1);
+            std::string args = (spacePos == std::string::npos) ? "" : content.substr(spacePos + 1);
+            NetworkMessage msg;
+            msg.type = "COMMAND";
+            msg.content = command + " " + args;
+            this->sendMessage(msg);
+        } else {
+            // Send as a regular message.
+            if (inChatroom || inDM) {
+                NetworkMessage msg{username, "TEXT", content};
+                this->sendMessage(msg);
+            } else {
+                std::cout << "\r[Error] You must join a chatroom or start a DM to send messages.\n";
+            }
+        }
+
+        // Redraw the prompt.
+        if (!shouldExit.load()) {
+            if (inChatroom || inDM){
+                std::cout << "\r\033[32m[Me]: ";
+            }
+            else{
+                std::cout << ">> ";
+            }
+            std::cout.flush();
+        }
+    }
+    if (listener.joinable()) listener.join();
+    std::cout << "Exiting client...\n";
+    exit(0);
+}
+
+void Client::connect(const std::string& ip, int port) {
+    sock_ = netManager_->connectToServer(ip, port);
+    std::cout << "Connected to server on socket " << sock_ << "\n";
+}
+
+void Client::sendMessage(const NetworkMessage& msg ) {
+    if (sock_ != -1) {
+        std::string data = Serializer::serialize(msg);
+        netManager_->sendMessage(sock_, data);
+    }
+}
+
+// Listens for incoming messages from the server.
+void Client::listenThread() {
+    if (sock_ == -1) return;
+    while (!shouldExit.load()) {
+        std::string buffer = netManager_->receiveMessage(sock_);
+        if (buffer.empty()) {
+            std::cout << "\r[SYSTEM] Server disconnected." << std::endl;
+            shouldExit.store(true);
+            break;
+        }
+        
+        if (buffer == "Goodbye! Exiting chat.") {
+            std::cout << "\r" << buffer << std::endl;
+            shouldExit.store(true);
+            break;
+        }
+
+        // Attempt to deserialize the buffer into a NetworkMessage.
+        try {
+            NetworkMessage msg = Serializer::deserialize(buffer);
+            // Update client state based on system messages.
+            if (msg.type == "SYSTEM") {
+                if (msg.content.find("Joined room") != std::string::npos) {
+                    inChatroom = true;
+                    inDM = false;
+                } else if (msg.content.find("Started DM") != std::string::npos) {
+                    inDM = true;
+                    inChatroom = false;
+                } else if (msg.content.find("Left room") != std::string::npos || msg.content.find("Exited DM") != std::string::npos) {
+                    inChatroom = false;
+                    inDM = false;
+                }
+                // System messages in yellow.
+                std::cout << "\r\033[33m[SYSTEM] " << msg.content << "\033[0m" << std::endl;
+            } else if (msg.type == "TEXT") {
+                // Messages from other users in blue.
+                std::cout << "\r\033[34m[" << msg.userName << "]:\033[0m " << msg.content << std::endl;
+            } else {
+                // Default format for other message types.
+                std::cout << "\r[" << msg.type << " from " << msg.userName << "]: " << msg.content << std::endl;
+            }
+        } catch (...) {
+            // If this is the initial userID assignment, don't print it.
+            try { std::stoi(buffer); continue; } catch (...) {}
+            // Print raw, non-deserializable messages in gray.
+            std::cout << "\r\033[90m" << buffer << "\033[0m" << std::endl;
+        }
+        
+        // Reprint the input prompt.
+        std::cout << ">> ";
+        std::cout.flush();
+    }
+    shouldExit.store(true);
+}
+
+void Client::closeConnection() {
+    netManager_->closeSocket(sock_);
+}
