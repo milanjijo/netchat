@@ -36,12 +36,18 @@ void Client::start(std::string& ip, int port) {
         std::getline(std::cin, content);
 
         if (shouldExit.load()) break;
-
         if (!content.empty() && content[0] == '/') {
             // Handle commands.
             size_t spacePos = content.find(' ');
-            std::string command = (spacePos == std::string::npos) ? content.substr(1) : content.substr(1, spacePos - 1);
-            std::string args = (spacePos == std::string::npos) ? "" : content.substr(spacePos + 1);
+            std::string command;
+            std::string args;
+            if (spacePos == std::string::npos) {
+                command = content.substr(1);
+                args = "";
+            } else {
+                command = content.substr(1, spacePos - 1);
+                args = content.substr(spacePos + 1);
+            }
             NetworkMessage msg;
             msg.type = "COMMAND";
             msg.content = command + " " + args;
@@ -109,10 +115,10 @@ void Client::listenThread() {
                 if (msg.content.find("Joined room") != std::string::npos) {
                     inChatroom = true;
                     inDM = false;
-                } else if (msg.content.find("Started DM") != std::string::npos) {
+                } else if (msg.content.find("DM session started") != std::string::npos) {
                     inDM = true;
                     inChatroom = false;
-                } else if (msg.content.find("Left room") != std::string::npos || msg.content.find("Exited DM") != std::string::npos) {
+                } else if (msg.content.find("Left room") != std::string::npos || msg.content.find("left the DM") != std::string::npos) {
                     inChatroom = false;
                     inDM = false;
                 }
@@ -131,9 +137,12 @@ void Client::listenThread() {
             // Print raw, non-deserializable messages in gray.
             std::cout << "\r\033[90m" << buffer << "\033[0m" << std::endl;
         }
-        
-        // Reprint the input prompt.
-        std::cout << ">> ";
+        // Reprint prompt
+        if (inChatroom || inDM) {
+            std::cout << "[Me]: ";
+        } else {
+            std::cout << ">> ";
+        }
         std::cout.flush();
     }
     shouldExit.store(true);
