@@ -65,7 +65,7 @@ void Client::start(std::string& ip, int port) {
         // Redraw the prompt.
         if (!shouldExit.load()) {
             if (inChatroom || inDM){
-                std::cout << "\r\033[32m[Me]: ";
+                std::cout << "\r\033[32m[Me]:\033[0m ";
             }
             else{
                 std::cout << ">> ";
@@ -123,10 +123,35 @@ void Client::listenThread() {
                     inDM = false;
                 }
                 // System messages in yellow.
-                std::cout << "\r\033[33m[SYSTEM] " << msg.content << "\033[0m" << std::endl;
+                // Handle multiline messages properly
+                std::string content = msg.content;
+                size_t pos = 0;
+                size_t newlinePos;
+                bool firstLine = true;
+                while ((newlinePos = content.find('\n', pos)) != std::string::npos) {
+                    if (firstLine) {
+                        std::cout << "\r\033[33m[SYSTEM] " << content.substr(pos, newlinePos - pos) << "\033[0m" << std::endl;
+                        firstLine = false;
+                    } else {
+                        std::cout << "\033[33m         " << content.substr(pos, newlinePos - pos) << "\033[0m" << std::endl;
+                    }
+                    pos = newlinePos + 1;
+                }
+                if (pos < content.length()) {
+                    if (firstLine) {
+                        std::cout << "\r\033[33m[SYSTEM] " << content.substr(pos) << "\033[0m" << std::endl;
+                    } else {
+                        std::cout << "\033[33m         " << content.substr(pos) << "\033[0m" << std::endl;
+                    }
+                }
             } else if (msg.type == "TEXT") {
                 // Messages from other users in blue.
-                std::cout << "\r\033[34m[" << msg.userName << "]:\033[0m " << msg.content << std::endl;
+                // Don't color our own messages (they're already sent in green)
+                if (msg.userName == username) {
+                    std::cout << "\r[" << msg.userName << "]: " << msg.content << std::endl;
+                } else {
+                    std::cout << "\r\033[34m[" << msg.userName << "]:\033[0m " << msg.content << std::endl;
+                }
             } else {
                 // Default format for other message types.
                 std::cout << "\r[" << msg.type << " from " << msg.userName << "]: " << msg.content << std::endl;
@@ -139,7 +164,7 @@ void Client::listenThread() {
         }
         // Reprint prompt
         if (inChatroom || inDM) {
-            std::cout << "[Me]: ";
+            std::cout << "\033[32m[Me]:\033[0m ";
         } else {
             std::cout << ">> ";
         }

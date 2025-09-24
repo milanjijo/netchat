@@ -3,13 +3,16 @@
 #include <string>
 #include <unordered_map>
 #include <netinet/in.h>
-#include <mutex>
-#include <map>
 #include <functional>
 
-#include "ChatRoom.h"
 #include "NetworkManager.h"
-#include "User.h"
+#include "UserManager.h"
+#include "ChatRoomManager.h"
+#include "DMManager.h"
+#include "IConnectionStrategy.h"
+
+class User;
+class ChatRoom;
 
 // Manages server-side logic for the chat application.
 class Server {
@@ -18,39 +21,35 @@ private:
     sockaddr_in address;
     NetworkManager* netManager_;
     
-    // Core data structures for managing users and chatrooms.
-    std::unordered_map<std::string, std::unique_ptr<User>> userList; // Maps username to User object.
-    std::unordered_map<int, std::unique_ptr<ChatRoom>> chatRooms;    // Maps roomID to ChatRoom object.
-    std::recursive_mutex serverMutex;
-
-    // Auxiliary maps for efficient lookups.
-    std::unordered_map<int, User*> usersByID;            // Maps userID to User object.
-    std::unordered_map<std::string, int> nameToID;      // Maps username to userID.
-    std::unordered_map<int, std::string> idToName;      // Maps userID to username.
-    std::unordered_map<std::string, int> roomNameToID;  // Maps roomName to roomID.
-    
-    // For handling direct message invitations.
-    std::map<std::string, std::string> pendingDMs; // Maps target username to requester username.
+    // Manager components
+    std::unique_ptr<UserManager> userManager_;
+    std::unique_ptr<ChatRoomManager> roomManager_;
+    std::unique_ptr<DMManager> dmManager_;
+    std::unique_ptr<IConnectionStrategy> connectionStrategy_;
 
     using CommandHandler = std::function<void(const std::string&, int, int)>;
     std::unordered_map<std::string, CommandHandler> commandHandlers;
 
 public:
-    Server(NetworkManager* netManager);
+    Server(NetworkManager* netManager, std::unique_ptr<IConnectionStrategy> strategy);
     ~Server();
 
     // Starts the server and begins accepting client connections.
     void start();
 
     // Handles all communication with a connected client.
-    void handleClient(int clientSocket);
+    // Called by the connection strategy for each client.
+    void handleClient(int clientSocket, int userID);
 
     // Broadcasts a message to all users in a specific chatroom, except the sender.
     void broadcastToRoom(int roomID, const std::string& data, int senderID);
+    
+    // Helper to leave a chatroom
     void leaveChatRoom(int userID);
 
 private:
     void initializeCommandHandlers();
+    
     // Processes a command received from a client.
     void handleCommand(const std::string& command, const std::string& args, int userID, int clientSocket);
     
@@ -67,8 +66,5 @@ private:
     void handleExitCommand(const std::string& args, int userID, int clientSocket);
 
     static std::pair<std::string, std::string> parseCommandArgs(const std::string& content);
-    User* getUser(int userID);
-    User* getUser(const std::string& username);
-    void removeUser(int userID);
     void sendSystemMessage(int clientSocket, const std::string& message);
 };
