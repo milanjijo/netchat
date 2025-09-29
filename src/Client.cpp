@@ -3,8 +3,10 @@
 #include <iostream>
 #include <thread>
 #include <atomic>
+#include <unistd.h>
 
 static std::atomic<bool> shouldExit{false};
+static int clientSocketGlobal = -1;
 
 Client::Client(const std::string &name, NetworkManager* netManager)
     : username(name), netManager_(netManager), sock_(-1), userID(-1), inChatroom(false), inDM(false) {}
@@ -13,6 +15,7 @@ Client::~Client() {}
 
 void Client::start(std::string& ip, int port) {
     Client::connect(ip,port);
+    clientSocketGlobal = sock_;
     
     // Register with the server and receive a user ID.
     netManager_->sendMessage(sock_, username);
@@ -33,6 +36,10 @@ void Client::start(std::string& ip, int port) {
     // Main loop for handling user input.
     while (!shouldExit.load()) {
         std::string content;
+        
+        // Check if we should exit before blocking on getline
+        if (shouldExit.load()) break;
+        
         std::getline(std::cin, content);
 
         if (shouldExit.load()) break;
@@ -73,6 +80,12 @@ void Client::start(std::string& ip, int port) {
             std::cout.flush();
         }
     }
+    
+    // Close the socket to unblock any pending operations
+    if (clientSocketGlobal >= 0) {
+        close(clientSocketGlobal);
+    }
+    
     if (listener.joinable()) listener.join();
     std::cout << "Exiting client...\n";
     exit(0);

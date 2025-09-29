@@ -72,6 +72,31 @@ void Server::start()
     );
 }
 
+void Server::stop()
+{
+    std::cout << "[Server] Shutting down gracefully..." << std::endl;
+    
+    // Stop accepting new connections
+    connectionStrategy_->stop();
+    
+    // Notify all connected users
+    std::vector<int> userIDs = userManager_->getAllUserIDs();
+    for (int userID : userIDs) {
+        User* user = userManager_->getUser(userID);
+        if (user) {
+            sendSystemMessage(user->getSocket(), "Server is shutting down. Goodbye!");
+            netManager_->closeSocket(user->getSocket());
+        }
+    }
+    
+    // Close server socket
+    if (server_fd >= 0) {
+        netManager_->closeSocket(server_fd);
+    }
+    
+    std::cout << "[Server] Shutdown complete" << std::endl;
+}
+
 void Server::handleClient(int clientSocket, int userID)
 {
     User* user = userManager_->getUser(userID);

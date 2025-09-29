@@ -8,6 +8,8 @@
 class BlockingIOStrategy : public IConnectionStrategy {
 private:
     std::atomic<bool> running_{false};
+    int serverSocket_{-1};
+    NetworkManager* netManager_{nullptr};
 
 public:
     BlockingIOStrategy() = default;

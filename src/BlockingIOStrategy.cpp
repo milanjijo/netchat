@@ -15,6 +15,8 @@ void BlockingIOStrategy::run(
     ClientHandler clientHandler
 ) {
     running_ = true;
+    serverSocket_ = serverSocket;
+    netManager_ = netManager;
     std::cout << "[BlockingIOStrategy] Starting with thread-per-client model" << std::endl;
 
     while (running_) {
@@ -65,4 +67,9 @@ void BlockingIOStrategy::run(
 void BlockingIOStrategy::stop() {
     running_ = false;
     std::cout << "[BlockingIOStrategy] Stopping..." << std::endl;
+    
+    // Close server socket to break out of accept() call
+    if (serverSocket_ >= 0 && netManager_) {
+        netManager_->closeSocket(serverSocket_);
+    }
 }

@@ -37,6 +37,9 @@ public:
     // Starts the server and begins accepting client connections.
     void start();
 
+    // Stops the server gracefully.
+    void stop();
+
     // Handles all communication with a connected client.
     // Called by the connection strategy for each client.
     void handleClient(int clientSocket, int userID);
