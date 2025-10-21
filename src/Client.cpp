@@ -135,8 +135,7 @@ void Client::listenThread() {
                     inChatroom = false;
                     inDM = false;
                 }
-                // System messages in yellow.
-                // Handle multiline messages properly
+                // Display multiline system messages with indented continuation
                 std::string content = msg.content;
                 size_t pos = 0;
                 size_t newlinePos;
@@ -175,7 +174,6 @@ void Client::listenThread() {
             // Print raw, non-deserializable messages in gray.
             std::cout << "\r\033[90m" << buffer << "\033[0m" << std::endl;
         }
-        // Reprint prompt
         if (inChatroom || inDM) {
             std::cout << "\033[32m[Me]:\033[0m ";
         } else {

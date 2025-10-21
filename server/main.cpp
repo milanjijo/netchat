@@ -2,6 +2,7 @@
 #include "NetworkManager.h"
 #include "PosixNetworkConnection.h"
 #include "BlockingIOStrategy.h"
+#include "SelectStrategy.h"
 #include <memory>
 #include <csignal>
 #include <atomic>
@@ -27,10 +28,15 @@ int main() {
     PosixNetworkConnection posixConn;
     NetworkManager netManager(&posixConn);
     
-    // Create blocking I/O strategy
-    auto strategy = std::make_unique<BlockingIOStrategy>();
+    // Create server first (with nullptr strategy temporarily)
+    Server server(&netManager, nullptr);
     
-    Server server(&netManager, std::move(strategy));
+    // Create select-based I/O strategy with 4 worker threads, passing server pointer
+    auto strategy = std::make_unique<SelectStrategy>(&server, 4);
+    
+    // Set the strategy on the server
+    server.setStrategy(std::move(strategy));
+    
     globalServer = &server;
     
     std::cout << "[Main] Starting server... Press Ctrl+C to shutdown gracefully" << std::endl;

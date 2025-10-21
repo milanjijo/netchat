@@ -16,8 +16,7 @@ public:
     // Parameters: clientSocket, assigned userID
     using ClientHandler = std::function<void(int, int)>;
 
-    // Starts accepting and handling client connections.
-    // This is the main event loop for the strategy.
+    // Blocking event loop that handles connections until stop() is called
     virtual void run(
         int serverSocket,
         NetworkManager* netManager,

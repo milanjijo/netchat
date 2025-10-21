@@ -16,7 +16,11 @@ Server::Server(NetworkManager *netManager, std::unique_ptr<IConnectionStrategy> 
       connectionStrategy_(std::move(strategy))
 {
     initializeCommandHandlers();
-    std::cout << "[Server] Created with " << connectionStrategy_->getName() << std::endl;
+    if (connectionStrategy_) {
+        std::cout << "[Server] Created with " << connectionStrategy_->getName() << std::endl;
+    } else {
+        std::cout << "[Server] Created (strategy will be set later)" << std::endl;
+    }
 }
 
 void Server::initializeCommandHandlers() {
@@ -53,6 +57,13 @@ void Server::initializeCommandHandlers() {
 }
 
 Server::~Server() {}
+
+void Server::setStrategy(std::unique_ptr<IConnectionStrategy> strategy) {
+    connectionStrategy_ = std::move(strategy);
+    if (connectionStrategy_) {
+        std::cout << "[Server] Strategy set to " << connectionStrategy_->getName() << std::endl;
+    }
+}
 
 void Server::start()
 {
@@ -156,6 +167,51 @@ void Server::handleClient(int clientSocket, int userID)
     }
 }
 
+bool Server::processClientMessage(int clientSocket, int userID, const std::string& msgStr) {
+    if (msgStr.empty()) {
+        std::cout << "[Server] Client userID=" << userID << " disconnected." << std::endl;
+        leaveChatRoom(userID);
+        userManager_->removeUser(userID);
+        return false;
+    }
+    
+    NetworkMessage msg = Serializer::deserialize(msgStr);
+    
+    User* user = userManager_->getUser(userID);
+    if (!user) {
+        return false; // User was removed
+    }
+
+    if (msg.type == "COMMAND") {
+        auto [command, args] = Server::parseCommandArgs(msg.content);
+        std::cout << "[Server] Received command from userID=" << userID << ": /" << command << " " << args << std::endl;
+        handleCommand(command, args, userID, clientSocket);
+        if (command == "exit") {
+            return false; // Signal disconnect
+        }
+    }
+    else if (msg.type == "TEXT") {
+        int roomID = user->getRoomID();
+        std::string dmTarget = user->getDMTarget();
+
+        if (roomID != -1) {
+            std::cout << "[Server] Message from userID=" << userID << " to roomID=" << roomID << std::endl;
+            broadcastToRoom(roomID, msgStr, userID);
+        } else if (!dmTarget.empty()) {
+            User* targetUser = userManager_->getUser(dmTarget);
+            if (targetUser) {
+                netManager_->sendMessage(targetUser->getSocket(), msgStr);
+            } else {
+                sendSystemMessage(clientSocket, "[Error] DM target not found or offline.");
+            }
+        } else {
+            sendSystemMessage(clientSocket, "[Error] You must join a chatroom or start a DM to send messages.");
+        }
+    }
+    
+    return true; // Continue processing
+}
+
 void Server::handleCommand(const std::string &command, const std::string &args, int userID, int clientSocket)
 {
     auto it = commandHandlers.find(command);
@@ -176,13 +232,9 @@ void Server::handleExitCommand(const std::string& args, int userID, int clientSo
 }
 
 void Server::handleJoinCommand(const std::string& args, int userID, int clientSocket) {
-    // Get or create the chatroom
     int roomID = roomManager_->getOrCreateRoom(args);
-    
-    // Add user to the room
     roomManager_->addUserToRoom(roomID, userID);
     
-    // Update user's room assignment
     User* user = userManager_->getUser(userID);
     if (user) {
         user->setRoom(roomID);
@@ -194,7 +246,7 @@ void Server::handleJoinCommand(const std::string& args, int userID, int clientSo
     
     sendSystemMessage(clientSocket, "Joined room: " + args);
 
-    // Notify others in the room
+    // Broadcast JOIN notification to other room members
     std::string username = user ? user->getName() : "A user";
     std::string notification_msg = username + " has joined the chat.";
     NetworkMessage broadcastMsg{"SERVER", "SYSTEM", notification_msg};

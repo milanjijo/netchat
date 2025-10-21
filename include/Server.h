@@ -34,6 +34,9 @@ public:
     Server(NetworkManager* netManager, std::unique_ptr<IConnectionStrategy> strategy);
     ~Server();
 
+    // Sets the connection strategy (for late initialization)
+    void setStrategy(std::unique_ptr<IConnectionStrategy> strategy);
+
     // Starts the server and begins accepting client connections.
     void start();
 
@@ -43,6 +46,10 @@ public:
     // Handles all communication with a connected client.
     // Called by the connection strategy for each client.
     void handleClient(int clientSocket, int userID);
+
+    // Processes a single message from a client
+    // Returns false if client should be disconnected.
+    bool processClientMessage(int clientSocket, int userID, const std::string& message);
 
     // Broadcasts a message to all users in a specific chatroom, except the sender.
     void broadcastToRoom(int roomID, const std::string& data, int senderID);

@@ -3,6 +3,7 @@ project(ChatAppCLI)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
 set(SRC_DIR ${CMAKE_SOURCE_DIR}/src)
@@ -19,6 +20,11 @@ set(COMMON_SOURCES
     ${SRC_DIR}/Server.cpp
     ${SRC_DIR}/NetworkManager.cpp
     ${SRC_DIR}/Serializer.cpp
+    ${SRC_DIR}/UserManager.cpp
+    ${SRC_DIR}/ChatRoomManager.cpp
+    ${SRC_DIR}/DMManager.cpp
+    ${SRC_DIR}/BlockingIOStrategy.cpp
+    ${SRC_DIR}/SelectStrategy.cpp
     # ${SRC_DIR}/PrivateChatRoom.cpp
     # ${SRC_DIR}/GroupChatRoom.cpp
 )
@@ -40,3 +46,28 @@ add_executable(client
 )
 
 target_include_directories(client PRIVATE ${INCLUDE_DIR})
+
+# Test executable for serializer
+add_executable(test_serializer
+    ${CMAKE_SOURCE_DIR}/tests/test_serializer.cpp
+    ${SRC_DIR}/Serializer.cpp
+)
+
+target_include_directories(test_serializer PRIVATE ${INCLUDE_DIR})
+
+# Test executable for network protocol
+add_executable(test_network_protocol
+    ${CMAKE_SOURCE_DIR}/tests/test_network_protocol.cpp
+    ${SRC_DIR}/Serializer.cpp
+)
+
+target_include_directories(test_network_protocol PRIVATE ${INCLUDE_DIR})
+
+# Test executable for SelectStrategy
+add_executable(test_selectstrategy
+    ${CMAKE_SOURCE_DIR}/tests/test_selectstrategy.cpp
+    ${COMMON_SOURCES}
+)
+
+target_include_directories(test_selectstrategy PRIVATE ${INCLUDE_DIR})
+target_link_libraries(test_selectstrategy pthread)

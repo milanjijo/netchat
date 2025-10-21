@@ -4,7 +4,6 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <stdexcept>
-#include <cstring>
 
 class PosixNetworkConnection : public INetworkConnection {
 public:
