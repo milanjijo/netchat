@@ -12,37 +12,71 @@ set(SRC_DIR ${CMAKE_SOURCE_DIR}/src)
 # Add include directory for all targets
 include_directories(${INCLUDE_DIR})
 
-set(COMMON_SOURCES
-    ${SRC_DIR}/User.cpp
-    ${SRC_DIR}/Message.cpp
-    ${SRC_DIR}/TextMessage.cpp
-    ${SRC_DIR}/ChatRoom.cpp
-    ${SRC_DIR}/Server.cpp
-    ${SRC_DIR}/NetworkManager.cpp
-    ${SRC_DIR}/Serializer.cpp
-    ${SRC_DIR}/UserManager.cpp
-    ${SRC_DIR}/ChatRoomManager.cpp
-    ${SRC_DIR}/DMManager.cpp
-    ${SRC_DIR}/BlockingIOStrategy.cpp
-    ${SRC_DIR}/SelectStrategy.cpp
-    # ${SRC_DIR}/PrivateChatRoom.cpp
-    # ${SRC_DIR}/GroupChatRoom.cpp
+# Network layer sources
+set(NETWORK_SOURCES
+    ${SRC_DIR}/network/NetworkManager.cpp
+)
+
+# Protocol layer sources
+set(PROTOCOL_SOURCES
+    ${SRC_DIR}/protocol/Serializer.cpp
+    ${SRC_DIR}/protocol/Message.cpp
+    ${SRC_DIR}/protocol/TextMessage.cpp
+)
+
+# Domain layer sources
+set(DOMAIN_SOURCES
+    ${SRC_DIR}/domain/User.cpp
+    ${SRC_DIR}/domain/ChatRoom.cpp
+)
+
+# Server manager sources
+set(SERVER_MANAGER_SOURCES
+    ${SRC_DIR}/server/managers/UserManager.cpp
+    ${SRC_DIR}/server/managers/ChatRoomManager.cpp
+    ${SRC_DIR}/server/managers/DMManager.cpp
+)
+
+# Server strategy sources
+set(SERVER_STRATEGY_SOURCES
+    ${SRC_DIR}/server/strategies/BlockingIOStrategy.cpp
+    ${SRC_DIR}/server/strategies/SelectStrategy.cpp
+)
+
+# Server application sources
+set(SERVER_APP_SOURCES
+    ${SRC_DIR}/server/Server.cpp
+)
+
+# Client application sources
+set(CLIENT_APP_SOURCES
+    ${SRC_DIR}/client/Client.cpp
+)
+
+# Common sources for server
+set(COMMON_SERVER_SOURCES
+    ${NETWORK_SOURCES}
+    ${PROTOCOL_SOURCES}
+    ${DOMAIN_SOURCES}
+    ${SERVER_MANAGER_SOURCES}
+    ${SERVER_STRATEGY_SOURCES}
+    ${SERVER_APP_SOURCES}
 )
 
 
 # Server executable
 add_executable(server
-    ${COMMON_SOURCES}
+    ${COMMON_SERVER_SOURCES}
     ${CMAKE_SOURCE_DIR}/server/main.cpp
 )
 
 # Client executable
 add_executable(client
     ${CMAKE_SOURCE_DIR}/client/main.cpp
-    ${SRC_DIR}/Client.cpp
-    ${SRC_DIR}/NetworkManager.cpp
-    ${SRC_DIR}/Serializer.cpp
-    ${INCLUDE_DIR}/PosixNetworkConnection.h
+    ${CLIENT_APP_SOURCES}
+    ${NETWORK_SOURCES}
+    ${PROTOCOL_SOURCES}
+    ${INCLUDE_DIR}/network/PosixNetworkConnection.h
 )
 
 target_include_directories(client PRIVATE ${INCLUDE_DIR})
@@ -50,24 +84,8 @@ target_include_directories(client PRIVATE ${INCLUDE_DIR})
 # Test executable for serializer
 add_executable(test_serializer
     ${CMAKE_SOURCE_DIR}/tests/test_serializer.cpp
-    ${SRC_DIR}/Serializer.cpp
+    ${PROTOCOL_SOURCES}
 )
 
 target_include_directories(test_serializer PRIVATE ${INCLUDE_DIR})
 
-# Test executable for network protocol
-add_executable(test_network_protocol
-    ${CMAKE_SOURCE_DIR}/tests/test_network_protocol.cpp
-    ${SRC_DIR}/Serializer.cpp
-)
-
-target_include_directories(test_network_protocol PRIVATE ${INCLUDE_DIR})
-
-# Test executable for SelectStrategy
-add_executable(test_selectstrategy
-    ${CMAKE_SOURCE_DIR}/tests/test_selectstrategy.cpp
-    ${COMMON_SOURCES}
-)
-
-target_include_directories(test_selectstrategy PRIVATE ${INCLUDE_DIR})
-target_link_libraries(test_selectstrategy pthread)

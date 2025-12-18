@@ -1,6 +1,6 @@
-#include "Client.h"
-#include "NetworkManager.h"
-#include "PosixNetworkConnection.h"
+#include "client/Client.h"
+#include "network/NetworkManager.h"
+#include "network/PosixNetworkConnection.h"
 #include <iostream>
 #include <string>
 

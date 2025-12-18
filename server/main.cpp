@@ -1,8 +1,8 @@
-#include "Server.h"
-#include "NetworkManager.h"
-#include "PosixNetworkConnection.h"
-#include "BlockingIOStrategy.h"
-#include "SelectStrategy.h"
+#include "server/Server.h"
+#include "network/NetworkManager.h"
+#include "network/PosixNetworkConnection.h"
+#include "server/strategies/BlockingIOStrategy.h"
+#include "server/strategies/SelectStrategy.h"
 #include <memory>
 #include <csignal>
 #include <atomic>
@@ -31,8 +31,8 @@ int main() {
     // Create server first (with nullptr strategy temporarily)
     Server server(&netManager, nullptr);
     
-    // Create select-based I/O strategy with 4 worker threads, passing server pointer
-    auto strategy = std::make_unique<SelectStrategy>(&server, 4);
+    // Create select-based I/O strategy with 4 worker threads
+    auto strategy = std::make_unique<SelectStrategy>(4);
     
     // Set the strategy on the server
     server.setStrategy(std::move(strategy));
