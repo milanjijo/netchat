@@ -134,7 +134,6 @@ void SelectStrategy::monitorThread(
                         std::cout << "[SelectStrategy] Client registered: " << username 
                                   << " (ID: " << userID << ", socket: " << sock << ")" << std::endl;
 
-                        // Move to active clients (monitored by select, processed by workers)
                         {
                             std::lock_guard<std::mutex> lock(socketMapMutex_);
                             socketToUserID_[sock] = userID;
@@ -147,20 +146,15 @@ void SelectStrategy::monitorThread(
                 ++pendingIt;
             }
         }
-
-        // Check active clients for data and queue them for processing
         {
             std::lock_guard<std::mutex> lock(socketMapMutex_);
             for (const auto& pair : socketToUserID_) {
                 int sock = pair.first;
                 int userID = pair.second;
                 
-                // Only queue if socket has data AND is not already being processed
                 if (FD_ISSET(sock, &readfds) && processingSockets_.find(sock) == processingSockets_.end()) {
-                    // Mark as being processed
                     processingSockets_.insert(sock);
                     
-                    // Queue for worker to process
                     {
                         std::lock_guard<std::mutex> qlock(queueMutex_);
                         workQueue_.push({sock, userID});
@@ -217,8 +211,6 @@ void SelectStrategy::workerThread() {
                 std::cout << "[SelectStrategy] Worker: client " << item.userID 
                           << " disconnected (socket " << item.clientSocket << ")" << std::endl;
             }
-            // If shouldContinue is true, socket stays in socketToUserID_ and will be
-            // selected again when more data arrives
         }
     }
     

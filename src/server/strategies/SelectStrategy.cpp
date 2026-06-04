@@ -4,24 +4,18 @@
 #include <sys/select.h>
 #include <algorithm>
 
-// ── Construction / destruction ────────────────────────────────────────────────
-
-SelectStrategy::SelectStrategy(NetworkManager* net, size_t numWorkers)
-    : numWorkers_(numWorkers), net_(net) {}
+SelectStrategy::SelectStrategy(NetworkManager* net, size_t numWorkers) : numWorkers_(numWorkers), net_(net) {}
 
 SelectStrategy::~SelectStrategy() {
     stop();
 }
 
-// ── IConnectionStrategy interface ─────────────────────────────────────────────
-
 void SelectStrategy::run(int serverSocket, IOEventCallback onEvent) {
-    running_      = true;
+    running_ = true;
     serverSocket_ = serverSocket;
-    onEvent_      = std::move(onEvent);
+    onEvent_ = std::move(onEvent);
 
-    std::cout << "[SelectStrategy] Starting with " << numWorkers_
-              << " worker threads and select() multiplexing\n";
+    std::cout << "[SelectStrategy] Starting with " << numWorkers_ << " worker threads and select() multiplexing\n";
 
     for (size_t i = 0; i < numWorkers_; ++i) {
         workers_.emplace_back(&SelectStrategy::workerLoop, this);
@@ -61,7 +55,6 @@ void SelectStrategy::removeSocket(int socket) {
     processingSockets_.erase(socket);
 }
 
-// ── Monitor thread ────────────────────────────────────────────────────────────
 
 void SelectStrategy::monitorLoop(int serverSocket) {
     fd_set readfds;
@@ -82,7 +75,6 @@ void SelectStrategy::monitorLoop(int serverSocket) {
             }
         }
 
-        // 1-second timeout lets us periodically re-check running_
         struct timeval timeout{1, 0};
         int activity = select(maxfd + 1, &readfds, nullptr, nullptr, &timeout);
 
@@ -93,18 +85,14 @@ void SelectStrategy::monitorLoop(int serverSocket) {
         }
         if (activity == 0) continue;
 
-        // ── New TCP connection ────────────────────────────────────────────────
         if (FD_ISSET(serverSocket, &readfds)) {
-            // accept() is a pure socket syscall — fine to do on the monitor thread.
             sockaddr_in addr{};
             socklen_t   len = sizeof(addr);
             int clientSock  = ::accept(serverSocket,
                                        reinterpret_cast<sockaddr*>(&addr), &len);
             if (clientSock >= 0) {
                 std::cout << "[SelectStrategy] New connection on fd " << clientSock << "\n";
-                // Q2 fix: do NOT call onEvent_ here — that would block the monitor
-                // thread on receiveMessage() inside performHandshake().
-                // Instead, push as a handshake work item so a worker thread handles it.
+
                 {
                     std::lock_guard<std::mutex> qlock(queueMutex_);
                     workQueue_.push({ clientSock, /*isHandshake=*/true });
@@ -113,7 +101,6 @@ void SelectStrategy::monitorLoop(int serverSocket) {
             }
         }
 
-        // ── Existing client has data ──────────────────────────────────────────
         {
             std::lock_guard<std::mutex> lock(socketsMutex_);
             for (int fd : watchedSockets_) {
@@ -131,8 +118,6 @@ void SelectStrategy::monitorLoop(int serverSocket) {
         }
     }
 }
-
-// ── Worker threads ────────────────────────────────────────────────────────────
 
 void SelectStrategy::workerLoop() {
     std::cout << "[SelectStrategy] Worker " << std::this_thread::get_id() << " started\n";
@@ -153,17 +138,8 @@ void SelectStrategy::workerLoop() {
         }
 
         if (item.isHandshake) {
-            // Handshake: fire IOEvent::NewConnection so Server::performHandshake() runs.
-            // This call blocks on receiveMessage() — that is fine here because we
-            // are on a worker thread, NOT on the monitor thread.
-            // On success Server calls addSocket(), entering the fd into watchedSockets_.
-            // On failure Server closes the socket itself.
-            // Either way, no processingSockets_ cleanup needed (fd wasn't watched yet).
             onEvent_({ IOEvent::Type::NewConnection, item.socket, {} });
         } else {
-            // Data: read one framed message, then fire the appropriate event.
-            // We read BEFORE firing so select() doesn't immediately re-trigger
-            // on the same fd (level-triggered semantics).
             std::string rawData = net_->receiveMessage(item.socket);
 
             IOEvent::Type evType = rawData.empty()
@@ -172,8 +148,6 @@ void SelectStrategy::workerLoop() {
 
             onEvent_({ evType, item.socket, std::move(rawData) });
 
-            // Unmark — socket stays in watchedSockets_;
-            // Server calls removeSocket() if it decides to close.
             {
                 std::lock_guard<std::mutex> lock(socketsMutex_);
                 processingSockets_.erase(item.socket);

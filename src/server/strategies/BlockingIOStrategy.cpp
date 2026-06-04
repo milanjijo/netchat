@@ -2,12 +2,7 @@
 #include <iostream>
 #include <thread>
 
-// ── Construction ──────────────────────────────────────────────────────────────
-
-BlockingIOStrategy::BlockingIOStrategy(NetworkManager* net)
-    : net_(net) {}
-
-// ── IConnectionStrategy interface ─────────────────────────────────────────────
+BlockingIOStrategy::BlockingIOStrategy(NetworkManager* net) : net_(net) {}
 
 void BlockingIOStrategy::run(int serverSocket, IOEventCallback onEvent) {
     running_      = true;
@@ -28,9 +23,6 @@ void BlockingIOStrategy::run(int serverSocket, IOEventCallback onEvent) {
 
         std::cout << "[BlockingIOStrategy] New connection on fd " << clientSock << "\n";
 
-        // Fire NewConnection — Server will call performHandshake() synchronously,
-        // then call addSocket() if registration succeeds.
-        // addSocket() launches clientReadLoop() in a detached thread.
         onEvent_({ IOEvent::Type::NewConnection, clientSock, {} });
     }
 
@@ -61,7 +53,6 @@ void BlockingIOStrategy::removeSocket(int socket) {
     removedSockets_.insert(socket);
 }
 
-// ── Per-client read loop ──────────────────────────────────────────────────────
 
 void BlockingIOStrategy::clientReadLoop(int socket) {
     std::cout << "[BlockingIOStrategy] Read thread started for fd " << socket << "\n";
@@ -76,9 +67,6 @@ void BlockingIOStrategy::clientReadLoop(int socket) {
             }
         }
 
-        // Blocking receive — drains one framed message.
-        // Uses length-prefix framing from PosixNetworkConnection.
-        // Returns empty string on peer disconnect or error.
         std::string data = net_->receiveMessage(socket);
 
         if (data.empty()) {

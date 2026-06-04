@@ -27,13 +27,9 @@ int main() {
     PosixNetworkConnection posixConn;
     NetworkManager netManager(&posixConn);
 
-    // ── Choose a strategy ─────────────────────────────────────────────────────
-    // SelectStrategy: select()-based I/O multiplexing with N worker threads.
-    // NetworkManager is passed so workers can call receiveMessage() with
-    // proper length-prefix framing.
+
     auto strategy = std::make_unique<SelectStrategy>(&netManager, 4);
 
-    // Alternative: thread-per-client blocking I/O
     // auto strategy = std::make_unique<BlockingIOStrategy>(&netManager);
 
     Server server(&netManager, std::move(strategy));

@@ -10,8 +10,7 @@
 
 // ── Construction / destruction ────────────────────────────────────────────────
 
-Server::Server(NetworkManager* netManager,
-               std::unique_ptr<IConnectionStrategy> strategy)
+Server::Server(NetworkManager* netManager, std::unique_ptr<IConnectionStrategy> strategy)
     : netManager_(netManager),
       userManager_(std::make_unique<UserManager>()),
       roomManager_(std::make_unique<ChatRoomManager>()),
@@ -68,29 +67,18 @@ void Server::stop() {
     std::cout << "[Server] Shutdown complete\n";
 }
 
-// ── IOEvent dispatch ──────────────────────────────────────────────────────────
-
 void Server::onIOEvent(IOEvent event) {
     switch (event.type) {
 
     case IOEvent::Type::NewConnection: {
-        // Strategy accepted a raw TCP connection.
-        // We perform the username handshake synchronously here.
-        // performHandshake() blocks on receiveMessage(), which is acceptable
-        // for BlockingIOStrategy (caller is on accept thread).
-        // For SelectStrategy, handshake is still blocking on the monitor
-        // thread — see architecture doc §8 Q2 for the non-blocking upgrade path.
         int userID = performHandshake(event.socket);
-        if (userID < 0) break;  // rejected; socket already closed
+        if (userID < 0) break;
 
         {
             std::lock_guard<std::mutex> lock(clientsMutex_);
             socketToUser_[event.socket] = userID;
         }
 
-        // Tell strategy to start watching/serving this fd.
-        // For SelectStrategy: adds to watchedSockets_.
-        // For BlockingIOStrategy: launches the per-client read thread.
         connectionStrategy_->addSocket(event.socket);
         break;
     }
@@ -107,10 +95,7 @@ void Server::onIOEvent(IOEvent event) {
     }
 }
 
-// ── Handshake ─────────────────────────────────────────────────────────────────
-
 int Server::performHandshake(int socket) {
-    // Client sends its desired username as the very first message.
     std::string username = netManager_->receiveMessage(socket);
     if (username.empty()) {
         std::cout << "[Server] Empty username — closing fd " << socket << "\n";
@@ -133,19 +118,16 @@ int Server::performHandshake(int socket) {
     return userID;
 }
 
-// ── Data routing ──────────────────────────────────────────────────────────────
-
 void Server::onDataAvailable(int socket, const std::string& rawMessage) {
     int userID;
     {
         std::lock_guard<std::mutex> lock(clientsMutex_);
         auto it = socketToUser_.find(socket);
-        if (it == socketToUser_.end()) return;  // unknown socket — ignore
+        if (it == socketToUser_.end()) return; 
         userID = it->second;
     }
 
     if (rawMessage.empty()) {
-        // Empty data == peer disconnected
         disconnectClient(socket);
         return;
     }
@@ -155,8 +137,6 @@ void Server::onDataAvailable(int socket, const std::string& rawMessage) {
         disconnectClient(socket);
     }
 }
-
-// ── Disconnect (centralised) ──────────────────────────────────────────────────
 
 void Server::disconnectClient(int socket) {
     int userID = -1;
@@ -182,7 +162,6 @@ void Server::disconnectClient(int socket) {
               << " (fd=" << socket << ") disconnected\n";
 }
 
-// ── Message processing ────────────────────────────────────────────────────────
 
 bool Server::processClientMessage(int socket, int userID, const std::string& msgStr) {
     NetworkMessage msg = Serializer::deserialize(msgStr);
@@ -232,7 +211,6 @@ void Server::handleCommand(const std::string& command, const std::string& args,
     }
 }
 
-// ── Command handler registration ──────────────────────────────────────────────
 
 void Server::initializeCommandHandlers() {
     commandHandlers_["join"]           = [this](const std::string& a, int uid, int sock) { handleJoinCommand(a, uid, sock); };
@@ -247,14 +225,10 @@ void Server::initializeCommandHandlers() {
     commandHandlers_["exit"]           = [this](const std::string& a, int uid, int sock) { handleExitCommand(a, uid, sock); };
 }
 
-// ── Command handlers ──────────────────────────────────────────────────────────
 
 void Server::handleExitCommand(const std::string& /*args*/, int userID, int socket) {
     std::cout << "[Server] UserID=" << userID << " requested exit\n";
-    // Only send the goodbye — disconnectClient() does the actual cleanup.
     sendSystemMessage(socket, "Goodbye! Exiting chat.");
-    // processClientMessage() sees command=="exit" and returns false,
-    // which triggers disconnectClient(). Do NOT close/remove here.
 }
 
 void Server::handleJoinCommand(const std::string& args, int userID, int socket) {
@@ -428,8 +402,6 @@ void Server::handleHelpCommand(const std::string& /*args*/, int /*userID*/, int 
         "/exit                - Exit the chat\n"
         "/help                - Show this help message");
 }
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 void Server::leaveChatRoom(int userID) {
     User* user = userManager_->getUser(userID);
