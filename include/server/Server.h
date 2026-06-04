@@ -2,6 +2,8 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <set>
+#include <mutex>
 #include <netinet/in.h>
 #include <functional>
 
@@ -14,27 +16,23 @@
 class User;
 class ChatRoom;
 
-// Manages server-side logic for the chat application.
+// Manages server-side client lifecycle and message routing.
+//
+// Responsibilities:
+//   - Receive raw IOEvents from the connection strategy
+//   - Perform the username handshake (register new clients)
+//   - Own the socket → userID mapping
+//   - Route deserialized messages to command/text handlers
+//   - Centralise client disconnect cleanup
+//
+// Does NOT know about: select(), epoll(), raw fd sets, or I/O mechanics.
 class Server {
-private:
-    int server_fd;
-    sockaddr_in address;
-    NetworkManager* netManager_;
-    
-    // Manager components
-    std::unique_ptr<UserManager> userManager_;
-    std::unique_ptr<ChatRoomManager> roomManager_;
-    std::unique_ptr<DMManager> dmManager_;
-    std::unique_ptr<IConnectionStrategy> connectionStrategy_;
-
-    using CommandHandler = std::function<void(const std::string&, int, int)>;
-    std::unordered_map<std::string, CommandHandler> commandHandlers;
-
 public:
-    Server(NetworkManager* netManager, std::unique_ptr<IConnectionStrategy> strategy);
+    Server(NetworkManager* netManager,
+           std::unique_ptr<IConnectionStrategy> strategy);
     ~Server();
 
-    // Sets the connection strategy (for late initialization)
+    // Sets the connection strategy (for late initialization).
     void setStrategy(std::unique_ptr<IConnectionStrategy> strategy);
 
     // Starts the server and begins accepting client connections.
@@ -43,38 +41,71 @@ public:
     // Stops the server gracefully.
     void stop();
 
-    // Handles all communication with a connected client.
-    // Called by the connection strategy for each client.
-    void handleClient(int clientSocket, int userID);
-
-    // Processes a single message from a client
-    // Returns false if client should be disconnected.
-    bool processClientMessage(int clientSocket, int userID, const std::string& message);
-
     // Broadcasts a message to all users in a specific chatroom, except the sender.
     void broadcastToRoom(int roomID, const std::string& data, int senderID);
-    
-    // Helper to leave a chatroom
+
+    // Helper: leave a chatroom (notifies other members).
     void leaveChatRoom(int userID);
 
 private:
-    void initializeCommandHandlers();
-    
-    // Processes a command received from a client.
-    void handleCommand(const std::string& command, const std::string& args, int userID, int clientSocket);
-    
-    // Command handlers
-    void handleJoinCommand(const std::string& args, int userID, int clientSocket);
-    void handleLeaveCommand(const std::string& args, int userID, int clientSocket);
-    void handleDmCommand(const std::string& args, int userID, int clientSocket);
-    void handleAcceptCommand(const std::string& args, int userID, int clientSocket);
-    void handleRejectCommand(const std::string& args, int userID, int clientSocket);
-    void handleListUsersCommand(const std::string& args, int userID, int clientSocket);
-    void handleListChatroomsCommand(const std::string& args, int userID, int clientSocket);
-    void handleMembersCommand(const std::string& args, int userID, int clientSocket);
-    void handleHelpCommand(const std::string& args, int userID, int clientSocket);
-    void handleExitCommand(const std::string& args, int userID, int clientSocket);
+    // ── IOEvent dispatch ──────────────────────────────────────────────────────
 
+    // Single entry point for all events from the strategy.
+    void onIOEvent(IOEvent event);
+
+    // Performs username handshake on a newly accepted socket.
+    // Registers the user and calls strategy->addSocket() on success.
+    // Returns userID on success, -1 on failure (socket already closed).
+    int performHandshake(int socket);
+
+    // Called when a socket is confirmed to have incoming data.
+    // Deserialises and routes one message; disconnects on error/exit.
+    void onDataAvailable(int socket, const std::string& rawMessage);
+
+    // Centralised disconnect: removes from all maps, leaves room,
+    // unregisters user, removes from strategy watch set, closes socket.
+    void disconnectClient(int socket);
+
+    // ── Message routing ───────────────────────────────────────────────────────
+
+    // Routes a single deserialised message.
+    // Returns false if the client should be disconnected.
+    bool processClientMessage(int socket, int userID, const std::string& msgStr);
+
+    // Dispatches to the correct command handler.
+    void handleCommand(const std::string& command, const std::string& args,
+                       int userID, int socket);
+
+    // ── Command handlers (business logic) ─────────────────────────────────────
+    void initializeCommandHandlers();
+    void handleJoinCommand       (const std::string& args, int userID, int socket);
+    void handleLeaveCommand      (const std::string& args, int userID, int socket);
+    void handleDmCommand         (const std::string& args, int userID, int socket);
+    void handleAcceptCommand     (const std::string& args, int userID, int socket);
+    void handleRejectCommand     (const std::string& args, int userID, int socket);
+    void handleListUsersCommand  (const std::string& args, int userID, int socket);
+    void handleListChatroomsCommand(const std::string& args, int userID, int socket);
+    void handleMembersCommand    (const std::string& args, int userID, int socket);
+    void handleHelpCommand       (const std::string& args, int userID, int socket);
+    void handleExitCommand       (const std::string& args, int userID, int socket);
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
     static std::pair<std::string, std::string> parseCommandArgs(const std::string& content);
-    void sendSystemMessage(int clientSocket, const std::string& message);
+    void sendSystemMessage(int socket, const std::string& message);
+
+    // ── Members ───────────────────────────────────────────────────────────────
+    int                                 server_fd{-1};
+    NetworkManager*                     netManager_;
+
+    std::unique_ptr<UserManager>        userManager_;
+    std::unique_ptr<ChatRoomManager>    roomManager_;
+    std::unique_ptr<DMManager>          dmManager_;
+    std::unique_ptr<IConnectionStrategy> connectionStrategy_;
+
+    // Client lifecycle state — owned by Server, NOT by the strategy
+    std::unordered_map<int, int>        socketToUser_;  // socket fd → userID
+    std::mutex                          clientsMutex_;
+
+    using CommandHandler = std::function<void(const std::string&, int, int)>;
+    std::unordered_map<std::string, CommandHandler> commandHandlers_;
 };

@@ -4,182 +4,139 @@
 #include <sys/select.h>
 #include <algorithm>
 
-SelectStrategy::SelectStrategy(size_t numWorkers)
-    : running_(false), numWorkers_(numWorkers), serverSocket_(-1), 
-      netManager_(nullptr), userManager_(nullptr), roomManager_(nullptr),
-      dmManager_(nullptr), clientHandler_(nullptr) {
-}
+// ── Construction / destruction ────────────────────────────────────────────────
+
+SelectStrategy::SelectStrategy(NetworkManager* net, size_t numWorkers)
+    : numWorkers_(numWorkers), net_(net) {}
 
 SelectStrategy::~SelectStrategy() {
     stop();
 }
 
-void SelectStrategy::run(
-    int serverSocket,
-    NetworkManager* netManager,
-    UserManager* userManager,
-    ChatRoomManager* roomManager,
-    DMManager* dmManager,
-    ClientHandler clientHandler
-) {
-    running_ = true;
-    serverSocket_ = serverSocket;
-    netManager_ = netManager;
-    userManager_ = userManager;
-    roomManager_ = roomManager;
-    dmManager_ = dmManager;
-    clientHandler_ = clientHandler;
+// ── IConnectionStrategy interface ─────────────────────────────────────────────
 
-    std::cout << "[SelectStrategy] Starting with " << numWorkers_ 
-              << " worker threads and select() multiplexing" << std::endl;
+void SelectStrategy::run(int serverSocket, IOEventCallback onEvent) {
+    running_      = true;
+    serverSocket_ = serverSocket;
+    onEvent_      = std::move(onEvent);
+
+    std::cout << "[SelectStrategy] Starting with " << numWorkers_
+              << " worker threads and select() multiplexing\n";
 
     for (size_t i = 0; i < numWorkers_; ++i) {
-        workers_.emplace_back(&SelectStrategy::workerThread, this);
+        workers_.emplace_back(&SelectStrategy::workerLoop, this);
     }
 
-    monitorThread(serverSocket, netManager, userManager, roomManager, dmManager, clientHandler);
+    monitorLoop(serverSocket);
 
-    // Join worker threads to ensure graceful shutdown
-    for (auto& worker : workers_) {
-        if (worker.joinable()) {
-            worker.join();
-        }
+    // Drain workers
+    queueCV_.notify_all();
+    for (auto& w : workers_) {
+        if (w.joinable()) w.join();
     }
 
-    std::cout << "[SelectStrategy] Stopped" << std::endl;
+    std::cout << "[SelectStrategy] Stopped\n";
 }
 
-void SelectStrategy::monitorThread(
-    int serverSocket,
-    NetworkManager* netManager,
-    UserManager* userManager,
-    ChatRoomManager* roomManager,
-    DMManager* dmManager,
-    ClientHandler clientHandler
-) {
+void SelectStrategy::stop() {
+    running_ = false;
+    std::cout << "[SelectStrategy] Stopping...\n";
+    queueCV_.notify_all();
+
+    // Closing the server socket breaks the blocking select() call
+    if (serverSocket_ >= 0) {
+        ::close(serverSocket_);
+        serverSocket_ = -1;
+    }
+}
+
+void SelectStrategy::addSocket(int socket) {
+    std::lock_guard<std::mutex> lock(socketsMutex_);
+    watchedSockets_.insert(socket);
+}
+
+void SelectStrategy::removeSocket(int socket) {
+    std::lock_guard<std::mutex> lock(socketsMutex_);
+    watchedSockets_.erase(socket);
+    processingSockets_.erase(socket);
+}
+
+// ── Monitor thread ────────────────────────────────────────────────────────────
+
+void SelectStrategy::monitorLoop(int serverSocket) {
     fd_set readfds;
-    std::map<int, std::string> pendingClients; // Socket -> username (not yet registered)
 
     while (running_) {
         FD_ZERO(&readfds);
+
+        // Always watch the server (listening) socket
         FD_SET(serverSocket, &readfds);
         int maxfd = serverSocket;
 
-        // Add all client sockets
+        // Watch all currently active client sockets
         {
-            std::lock_guard<std::mutex> lock(socketMapMutex_);
-            for (const auto& pair : socketToUserID_) {
-                FD_SET(pair.first, &readfds);
-                maxfd = std::max(maxfd, pair.first);
+            std::lock_guard<std::mutex> lock(socketsMutex_);
+            for (int fd : watchedSockets_) {
+                FD_SET(fd, &readfds);
+                maxfd = std::max(maxfd, fd);
             }
         }
 
-        // Add pending clients (waiting for username)
-        for (const auto& pair : pendingClients) {
-            FD_SET(pair.first, &readfds);
-            maxfd = std::max(maxfd, pair.first);
-        }
-
-        // Timeout for select to periodically check running_ flag
-        struct timeval timeout;
-        timeout.tv_sec = 1;
-        timeout.tv_usec = 0;
-
+        // 1-second timeout lets us periodically re-check running_
+        struct timeval timeout{1, 0};
         int activity = select(maxfd + 1, &readfds, nullptr, nullptr, &timeout);
 
         if (!running_) break;
-
         if (activity < 0) {
-            if (running_) {
-                std::cerr << "[SelectStrategy] select() error" << std::endl;
-            }
+            if (running_) std::cerr << "[SelectStrategy] select() error\n";
             break;
         }
+        if (activity == 0) continue;
 
-        if (activity == 0) {
-            // Timeout, continue loop
-            continue;
-        }
-
-        // Check for new connections
+        // ── New TCP connection ────────────────────────────────────────────────
         if (FD_ISSET(serverSocket, &readfds)) {
-            int clientSocket = netManager->acceptClient(serverSocket);
-            if (clientSocket >= 0) {
-                std::cout << "[SelectStrategy] New connection on socket " << clientSocket << std::endl;
-                pendingClients[clientSocket] = ""; // Wait for username
-            }
-        }
-
-        // Check pending clients for username
-        auto pendingIt = pendingClients.begin();
-        while (pendingIt != pendingClients.end()) {
-            int sock = pendingIt->first;
-            if (FD_ISSET(sock, &readfds)) {
-                std::string username = netManager->receiveMessage(sock);
-                if (username.empty()) {
-                    std::cout << "[SelectStrategy] Empty username received. Closing socket " << sock << std::endl;
-                    netManager->closeSocket(sock);
-                    pendingIt = pendingClients.erase(pendingIt);
-                } else {
-                    // Register user
-                    int userID = userManager->registerUser(username, sock);
-                    if (userID == -1) {
-                        std::cout << "[SelectStrategy] Username already exists: " << username << std::endl;
-                        netManager->sendMessage(sock, "ERROR:Username already exists");
-                        netManager->closeSocket(sock);
-                        pendingIt = pendingClients.erase(pendingIt);
-                    } else {
-                        // Send userID back to client
-                        netManager->sendMessage(sock, std::to_string(userID));
-                        std::cout << "[SelectStrategy] Client registered: " << username 
-                                  << " (ID: " << userID << ", socket: " << sock << ")" << std::endl;
-
-                        // Move to active clients (monitored by select, processed by workers)
-                        {
-                            std::lock_guard<std::mutex> lock(socketMapMutex_);
-                            socketToUserID_[sock] = userID;
-                        }
-
-                        pendingIt = pendingClients.erase(pendingIt);
-                    }
+            // accept() is a pure socket syscall — fine to do on the monitor thread.
+            sockaddr_in addr{};
+            socklen_t   len = sizeof(addr);
+            int clientSock  = ::accept(serverSocket,
+                                       reinterpret_cast<sockaddr*>(&addr), &len);
+            if (clientSock >= 0) {
+                std::cout << "[SelectStrategy] New connection on fd " << clientSock << "\n";
+                // Q2 fix: do NOT call onEvent_ here — that would block the monitor
+                // thread on receiveMessage() inside performHandshake().
+                // Instead, push as a handshake work item so a worker thread handles it.
+                {
+                    std::lock_guard<std::mutex> qlock(queueMutex_);
+                    workQueue_.push({ clientSock, /*isHandshake=*/true });
                 }
-            } else {
-                ++pendingIt;
+                queueCV_.notify_one();
             }
         }
 
-        // Check active clients for data and queue them for processing
+        // ── Existing client has data ──────────────────────────────────────────
         {
-            std::lock_guard<std::mutex> lock(socketMapMutex_);
-            for (const auto& pair : socketToUserID_) {
-                int sock = pair.first;
-                int userID = pair.second;
-                
-                // Only queue if socket has data AND is not already being processed
-                if (FD_ISSET(sock, &readfds) && processingSockets_.find(sock) == processingSockets_.end()) {
-                    // Mark as being processed
-                    processingSockets_.insert(sock);
-                    
-                    // Queue for worker to process
+            std::lock_guard<std::mutex> lock(socketsMutex_);
+            for (int fd : watchedSockets_) {
+                if (FD_ISSET(fd, &readfds)
+                    && processingSockets_.count(fd) == 0) {
+                    // Guard against concurrent reads on the same fd
+                    processingSockets_.insert(fd);
                     {
                         std::lock_guard<std::mutex> qlock(queueMutex_);
-                        workQueue_.push({sock, userID});
+                        workQueue_.push({ fd, /*isHandshake=*/false });
                     }
                     queueCV_.notify_one();
                 }
             }
         }
     }
-
-    // Close all pending clients
-    for (const auto& pair : pendingClients) {
-        netManager->closeSocket(pair.first);
-    }
 }
 
-void SelectStrategy::workerThread() {
-    std::cout << "[SelectStrategy] Worker thread " << std::this_thread::get_id() << " started" << std::endl;
-    
+// ── Worker threads ────────────────────────────────────────────────────────────
+
+void SelectStrategy::workerLoop() {
+    std::cout << "[SelectStrategy] Worker " << std::this_thread::get_id() << " started\n";
+
     while (running_) {
         WorkItem item;
         {
@@ -188,52 +145,41 @@ void SelectStrategy::workerThread() {
                 return !workQueue_.empty() || !running_;
             });
 
-            if (!running_ && workQueue_.empty()) {
-                break;
-            }
-
-            if (workQueue_.empty()) {
-                continue;
-            }
+            if (!running_ && workQueue_.empty()) break;
+            if (workQueue_.empty()) continue;
 
             item = workQueue_.front();
             workQueue_.pop();
         }
 
-        // Read a single message (one receive call per work item)
-        std::string message = netManager_->receiveMessage(item.clientSocket);
-        
-        // Returns false to signal client disconnect
-        bool shouldContinue = clientHandler_(item.clientSocket, item.userID, message);
-        
-        {
-            std::lock_guard<std::mutex> lock(socketMapMutex_);
-            // Remove from processing set
-            processingSockets_.erase(item.clientSocket);
-            
-            if (!shouldContinue) {
-                // Client disconnected or sent exit command - remove from monitoring
-                socketToUserID_.erase(item.clientSocket);
-                std::cout << "[SelectStrategy] Worker: client " << item.userID 
-                          << " disconnected (socket " << item.clientSocket << ")" << std::endl;
+        if (item.isHandshake) {
+            // Handshake: fire IOEvent::NewConnection so Server::performHandshake() runs.
+            // This call blocks on receiveMessage() — that is fine here because we
+            // are on a worker thread, NOT on the monitor thread.
+            // On success Server calls addSocket(), entering the fd into watchedSockets_.
+            // On failure Server closes the socket itself.
+            // Either way, no processingSockets_ cleanup needed (fd wasn't watched yet).
+            onEvent_({ IOEvent::Type::NewConnection, item.socket, {} });
+        } else {
+            // Data: read one framed message, then fire the appropriate event.
+            // We read BEFORE firing so select() doesn't immediately re-trigger
+            // on the same fd (level-triggered semantics).
+            std::string rawData = net_->receiveMessage(item.socket);
+
+            IOEvent::Type evType = rawData.empty()
+                ? IOEvent::Type::Disconnected
+                : IOEvent::Type::DataAvailable;
+
+            onEvent_({ evType, item.socket, std::move(rawData) });
+
+            // Unmark — socket stays in watchedSockets_;
+            // Server calls removeSocket() if it decides to close.
+            {
+                std::lock_guard<std::mutex> lock(socketsMutex_);
+                processingSockets_.erase(item.socket);
             }
-            // If shouldContinue is true, socket stays in socketToUserID_ and will be
-            // selected again when more data arrives
         }
     }
-    
-    std::cout << "[SelectStrategy] Worker thread " << std::this_thread::get_id() << " stopped" << std::endl;
-}
 
-void SelectStrategy::stop() {
-    running_ = false;
-    std::cout << "[SelectStrategy] Stopping..." << std::endl;
-
-    // Notify all workers
-    queueCV_.notify_all();
-
-    // Close server socket to break out of select() call
-    if (serverSocket_ >= 0 && netManager_) {
-        netManager_->closeSocket(serverSocket_);
-    }
+    std::cout << "[SelectStrategy] Worker " << std::this_thread::get_id() << " stopped\n";
 }

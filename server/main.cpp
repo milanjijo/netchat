@@ -13,7 +13,7 @@ static Server* globalServer = nullptr;
 
 void signalHandler(int signal) {
     if (signal == SIGINT) {
-        std::cout << "\n[Main] Received SIGINT (Ctrl+C), initiating graceful shutdown..." << std::endl;
+        std::cout << "\n[Main] Received SIGINT (Ctrl+C), initiating graceful shutdown...\n";
         shutdownRequested.store(true);
         if (globalServer) {
             globalServer->stop();
@@ -22,26 +22,26 @@ void signalHandler(int signal) {
 }
 
 int main() {
-    // Setup signal handler
     std::signal(SIGINT, signalHandler);
-    
+
     PosixNetworkConnection posixConn;
     NetworkManager netManager(&posixConn);
-    
-    // Create server first (with nullptr strategy temporarily)
-    Server server(&netManager, nullptr);
-    
-    // Create select-based I/O strategy with 4 worker threads
-    auto strategy = std::make_unique<SelectStrategy>(4);
-    
-    // Set the strategy on the server
-    server.setStrategy(std::move(strategy));
-    
+
+    // ── Choose a strategy ─────────────────────────────────────────────────────
+    // SelectStrategy: select()-based I/O multiplexing with N worker threads.
+    // NetworkManager is passed so workers can call receiveMessage() with
+    // proper length-prefix framing.
+    auto strategy = std::make_unique<SelectStrategy>(&netManager, 4);
+
+    // Alternative: thread-per-client blocking I/O
+    // auto strategy = std::make_unique<BlockingIOStrategy>(&netManager);
+
+    Server server(&netManager, std::move(strategy));
     globalServer = &server;
-    
-    std::cout << "[Main] Starting server... Press Ctrl+C to shutdown gracefully" << std::endl;
+
+    std::cout << "[Main] Starting server... Press Ctrl+C to shutdown gracefully\n";
     server.start();
-    
+
     globalServer = nullptr;
     return 0;
 }

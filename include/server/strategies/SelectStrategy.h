@@ -1,75 +1,64 @@
-#ifndef SELECT_STRATEGY_H
-#define SELECT_STRATEGY_H
-
+#pragma once
 #include "server/strategies/IConnectionStrategy.h"
 #include "network/NetworkManager.h"
-#include "server/managers/UserManager.h"
-#include "server/managers/ChatRoomManager.h"
-#include "server/managers/DMManager.h"
 #include <atomic>
 #include <thread>
 #include <vector>
 #include <queue>
 #include <mutex>
 #include <condition_variable>
-#include <map>
 #include <set>
 
+// I/O multiplexing strategy using select() + a fixed worker thread pool.
+//
+// Responsibilities (ONLY):
+//   - Monitor file descriptors with select()
+//   - Accept new TCP connections → emit IOEvent::NewConnection
+//   - Detect data-ready fds → drain bytes → emit IOEvent::DataAvailable
+//   - Maintain the fd watch set via addSocket() / removeSocket()
+//
+// Does NOT know about: users, rooms, message routing, or business logic.
 class SelectStrategy : public IConnectionStrategy {
 public:
-    SelectStrategy(size_t numWorkers = 4);
+    // net is needed by worker threads to call receiveMessage() with proper framing.
+    explicit SelectStrategy(NetworkManager* net, size_t numWorkers = 4);
     ~SelectStrategy();
 
-    void run(
-        int serverSocket,
-        NetworkManager* netManager,
-        UserManager* userManager,
-        ChatRoomManager* roomManager,
-        DMManager* dmManager,
-        ClientHandler clientHandler
-    ) override;
-
+    // IConnectionStrategy interface
+    void run(int serverSocket, IOEventCallback onEvent) override;
     void stop() override;
+    void addSocket(int socket) override;
+    void removeSocket(int socket) override;
 
-    const char* getName() const override {
-        return "SelectStrategy";
-    }
+    const char* getName() const override { return "SelectStrategy"; }
 
 private:
     struct WorkItem {
-        int clientSocket;
-        int userID;
+        int  socket;
+        bool isHandshake; // true  → fire IOEvent::NewConnection (server does handshake)
+                          // false → read bytes, fire IOEvent::DataAvailable
     };
 
-    void monitorThread(
-        int serverSocket,
-        NetworkManager* netManager,
-        UserManager* userManager,
-        ChatRoomManager* roomManager,
-        DMManager* dmManager,
-        ClientHandler clientHandler
-    );
+    // The monitor thread: runs select() and enqueues WorkItems.
+    void monitorLoop(int serverSocket);
 
-    void workerThread();
+    // Worker threads: handle handshakes and drain data bytes.
+    void workerLoop();
 
-    std::atomic<bool> running_;
-    size_t numWorkers_;
-    std::vector<std::thread> workers_;
-    
-    std::queue<WorkItem> workQueue_;
-    std::mutex queueMutex_;
-    std::condition_variable queueCV_;
-    
-    std::map<int, int> socketToUserID_;
-    std::set<int> processingSockets_;  // Sockets currently being processed by workers
-    std::mutex socketMapMutex_;
-    
-    int serverSocket_;
-    NetworkManager* netManager_;
-    UserManager* userManager_;
-    ChatRoomManager* roomManager_;
-    DMManager* dmManager_;
-    ClientHandler clientHandler_;
+    std::atomic<bool>           running_{false};
+    size_t                      numWorkers_;
+    std::vector<std::thread>    workers_;
+
+    // I/O bookkeeping — fd sets only, no user/domain state
+    std::set<int>               watchedSockets_;    // fds currently monitored
+    std::set<int>               processingSockets_; // fds currently in a worker
+    std::mutex                  socketsMutex_;
+
+    std::queue<WorkItem>        workQueue_;
+    std::mutex                  queueMutex_;
+    std::condition_variable     queueCV_;
+
+    int                         serverSocket_{-1};
+    NetworkManager*             net_{nullptr};   // needed to drain bytes in workers
+    IOEventCallback             onEvent_;        // server-provided callback
 };
-
-#endif // SELECT_STRATEGY_H

@@ -5,6 +5,12 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Qt6 Configuration
+find_package(Qt6 REQUIRED COMPONENTS Widgets)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+set(CMAKE_AUTOUIC ON)
+
 set(INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
 set(SRC_DIR ${CMAKE_SOURCE_DIR}/src)
 
@@ -15,6 +21,7 @@ include_directories(${INCLUDE_DIR})
 # Network layer sources
 set(NETWORK_SOURCES
     ${SRC_DIR}/network/NetworkManager.cpp
+    ${SRC_DIR}/network/PosixNetworkConnection.cpp
 )
 
 # Protocol layer sources
@@ -53,6 +60,27 @@ set(CLIENT_APP_SOURCES
     ${SRC_DIR}/client/Client.cpp
 )
 
+# Client strategy sources
+set(CLIENT_STRATEGY_SOURCES
+    ${SRC_DIR}/client/strategies/BlockingClientStrategy.cpp
+)
+
+# Qt-specific strategy sources
+set(CLIENT_STRATEGY_SOURCES_QT
+    ${SRC_DIR}/client/strategies/EventDrivenClientStrategy.cpp
+    ${INCLUDE_DIR}/client/strategies/EventDrivenClientStrategy.h
+)
+
+# GUI application sources
+set(GUI_SOURCES
+    ${SRC_DIR}/gui/MainWindow.cpp
+    ${INCLUDE_DIR}/gui/MainWindow.h
+    ${SRC_DIR}/gui/ClientController.cpp
+    ${INCLUDE_DIR}/gui/ClientController.h
+    ${SRC_DIR}/gui/NetworkWorker.cpp
+    ${INCLUDE_DIR}/gui/NetworkWorker.h
+)
+
 # Common sources for server
 set(COMMON_SERVER_SOURCES
     ${NETWORK_SOURCES}
@@ -74,9 +102,9 @@ add_executable(server
 add_executable(client
     ${CMAKE_SOURCE_DIR}/client/main.cpp
     ${CLIENT_APP_SOURCES}
+    ${CLIENT_STRATEGY_SOURCES}
     ${NETWORK_SOURCES}
     ${PROTOCOL_SOURCES}
-    ${INCLUDE_DIR}/network/PosixNetworkConnection.h
 )
 
 target_include_directories(client PRIVATE ${INCLUDE_DIR})
@@ -88,4 +116,16 @@ add_executable(test_serializer
 )
 
 target_include_directories(test_serializer PRIVATE ${INCLUDE_DIR})
+
+# GUI Client executable
+add_executable(client_gui
+    ${CMAKE_SOURCE_DIR}/client/main_gui.cpp
+    ${CLIENT_STRATEGY_SOURCES}
+    ${CLIENT_APP_SOURCES}    ${CLIENT_STRATEGY_SOURCES_QT}    ${GUI_SOURCES}
+    ${NETWORK_SOURCES}
+    ${PROTOCOL_SOURCES}
+)
+
+target_include_directories(client_gui PRIVATE ${INCLUDE_DIR})
+target_link_libraries(client_gui Qt6::Widgets)
 

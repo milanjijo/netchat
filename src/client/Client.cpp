@@ -1,4 +1,5 @@
 #include "client/Client.h"
+#include "client/strategies/BlockingClientStrategy.h"
 #include "protocol/Serializer.h"
 #include <iostream>
 #include <thread>
@@ -8,10 +9,21 @@
 static std::atomic<bool> shouldExit{false};
 static int clientSocketGlobal = -1;
 
-Client::Client(const std::string &name, NetworkManager* netManager)
-    : username(name), netManager_(netManager), sock_(-1), userID(-1), inChatroom(false), inDM(false) {}
+Client::Client(const std::string &name, NetworkManager* netManager,
+               std::unique_ptr<IClientStrategy> strategy)
+    : username(name), netManager_(netManager), sock_(-1), userID(-1), 
+      inChatroom(false), inDM(false), strategy_(std::move(strategy)) {
+    // If no strategy provided, use blocking strategy for backward compatibility
+    if (!strategy_) {
+        strategy_ = std::make_unique<BlockingClientStrategy>(netManager_);
+    }
+}
 
-Client::~Client() {}
+Client::~Client() {
+    if (strategy_) {
+        strategy_->stopListening();
+    }
+}
 
 void Client::start(std::string& ip, int port) {
     Client::connect(ip,port);
@@ -28,7 +40,78 @@ void Client::start(std::string& ip, int port) {
         exit(1);
     }
 
-    std::thread listener(&Client::listenThread, this);
+    // Set up callbacks for message handling with strategy
+    if (strategy_) {
+        strategy_->setMessageCallback([this](const NetworkMessage& msg) {
+            // Update client state based on system messages
+            if (msg.type == "SYSTEM") {
+                if (msg.content.find("Joined room") != std::string::npos) {
+                    inChatroom = true;
+                    inDM = false;
+                } else if (msg.content.find("DM session started") != std::string::npos) {
+                    inDM = true;
+                    inChatroom = false;
+                } else if (msg.content.find("Left room") != std::string::npos || 
+                           msg.content.find("left the DM") != std::string::npos) {
+                    inChatroom = false;
+                    inDM = false;
+                }
+                // Display multiline system messages
+                std::string content = msg.content;
+                size_t pos = 0;
+                size_t newlinePos;
+                bool firstLine = true;
+                while ((newlinePos = content.find('\n', pos)) != std::string::npos) {
+                    if (firstLine) {
+                        std::cout << "\r\033[33m[SYSTEM] " << content.substr(pos, newlinePos - pos) 
+                                  << "\033[0m" << std::endl;
+                        firstLine = false;
+                    } else {
+                        std::cout << "\033[33m         " << content.substr(pos, newlinePos - pos) 
+                                  << "\033[0m" << std::endl;
+                    }
+                    pos = newlinePos + 1;
+                }
+                if (pos < content.length()) {
+                    if (firstLine) {
+                        std::cout << "\r\033[33m[SYSTEM] " << content.substr(pos) << "\033[0m" << std::endl;
+                    } else {
+                        std::cout << "\033[33m         " << content.substr(pos) << "\033[0m" << std::endl;
+                    }
+                }
+            } else if (msg.type == "TEXT") {
+                if (msg.userName == username) {
+                    std::cout << "\r[" << msg.userName << "]: " << msg.content << std::endl;
+                } else {
+                    std::cout << "\r\033[34m[" << msg.userName << "]:\033[0m " << msg.content << std::endl;
+                }
+            } else {
+                std::cout << "\r[" << msg.type << " from " << msg.userName << "]: " 
+                          << msg.content << std::endl;
+            }
+            
+            // Redraw prompt
+            if (inChatroom || inDM) {
+                std::cout << "\033[32m[Me]:\033[0m ";
+            } else {
+                std::cout << ">> ";
+            }
+            std::cout.flush();
+        });
+        
+        strategy_->setRawMessageCallback([](const std::string& raw) {
+            std::cout << "\r\033[90m" << raw << "\033[0m" << std::endl;
+            std::cout.flush();
+        });
+        
+        strategy_->setDisconnectCallback([this]() {
+            std::cout << "\r[SYSTEM] Server disconnected." << std::endl;
+            shouldExit.store(true);
+        });
+        
+        // Start listening with strategy
+        strategy_->startListening();
+    }
     
     std::cout << ">> ";
     std::cout.flush();
@@ -86,104 +169,60 @@ void Client::start(std::string& ip, int port) {
         close(clientSocketGlobal);
     }
     
-    if (listener.joinable()) listener.join();
+    if (strategy_) {
+        strategy_->stopListening();
+    }
+    
     std::cout << "Exiting client...\n";
     exit(0);
+}
+
+// Deprecated: Use strategy pattern instead
+// Kept for backward compatibility
+void Client::listenThread() {
+    // This method is now handled by the strategy
+    // For blocking strategy, it runs in its own thread
+    if (strategy_ && !strategy_->isListening()) {
+        strategy_->startListening();
+    }
+}
+
+void Client::setStrategy(std::unique_ptr<IClientStrategy> strategy) {
+    if (strategy_) {
+        strategy_->stopListening();
+    }
+    strategy_ = std::move(strategy);
+    if (sock_ != -1 && strategy_) {
+        strategy_->onConnected(sock_);
+    }
 }
 
 void Client::connect(const std::string& ip, int port) {
     sock_ = netManager_->connectToServer(ip, port);
     std::cout << "Connected to server on socket " << sock_ << "\n";
+    
+    if (strategy_) {
+        strategy_->onConnected(sock_);
+    }
 }
 
-void Client::sendMessage(const NetworkMessage& msg ) {
-    if (sock_ != -1) {
+void Client::sendMessage(const NetworkMessage& msg) {
+    if (strategy_) {
+        strategy_->sendMessage(msg);
+    } else if (sock_ != -1) {
+        // Fallback if no strategy (shouldn't happen)
         std::string data = Serializer::serialize(msg);
         netManager_->sendMessage(sock_, data);
     }
 }
 
-// Listens for incoming messages from the server.
-void Client::listenThread() {
-    if (sock_ == -1) return;
-    while (!shouldExit.load()) {
-        std::string buffer = netManager_->receiveMessage(sock_);
-        if (buffer.empty()) {
-            std::cout << "\r[SYSTEM] Server disconnected." << std::endl;
-            shouldExit.store(true);
-            break;
-        }
-        
-        if (buffer == "Goodbye! Exiting chat.") {
-            std::cout << "\r" << buffer << std::endl;
-            shouldExit.store(true);
-            break;
-        }
-
-        // Attempt to deserialize the buffer into a NetworkMessage.
-        try {
-            NetworkMessage msg = Serializer::deserialize(buffer);
-            // Update client state based on system messages.
-            if (msg.type == "SYSTEM") {
-                if (msg.content.find("Joined room") != std::string::npos) {
-                    inChatroom = true;
-                    inDM = false;
-                } else if (msg.content.find("DM session started") != std::string::npos) {
-                    inDM = true;
-                    inChatroom = false;
-                } else if (msg.content.find("Left room") != std::string::npos || msg.content.find("left the DM") != std::string::npos) {
-                    inChatroom = false;
-                    inDM = false;
-                }
-                // Display multiline system messages with indented continuation
-                std::string content = msg.content;
-                size_t pos = 0;
-                size_t newlinePos;
-                bool firstLine = true;
-                while ((newlinePos = content.find('\n', pos)) != std::string::npos) {
-                    if (firstLine) {
-                        std::cout << "\r\033[33m[SYSTEM] " << content.substr(pos, newlinePos - pos) << "\033[0m" << std::endl;
-                        firstLine = false;
-                    } else {
-                        std::cout << "\033[33m         " << content.substr(pos, newlinePos - pos) << "\033[0m" << std::endl;
-                    }
-                    pos = newlinePos + 1;
-                }
-                if (pos < content.length()) {
-                    if (firstLine) {
-                        std::cout << "\r\033[33m[SYSTEM] " << content.substr(pos) << "\033[0m" << std::endl;
-                    } else {
-                        std::cout << "\033[33m         " << content.substr(pos) << "\033[0m" << std::endl;
-                    }
-                }
-            } else if (msg.type == "TEXT") {
-                // Messages from other users in blue.
-                // Don't color our own messages (they're already sent in green)
-                if (msg.userName == username) {
-                    std::cout << "\r[" << msg.userName << "]: " << msg.content << std::endl;
-                } else {
-                    std::cout << "\r\033[34m[" << msg.userName << "]:\033[0m " << msg.content << std::endl;
-                }
-            } else {
-                // Default format for other message types.
-                std::cout << "\r[" << msg.type << " from " << msg.userName << "]: " << msg.content << std::endl;
-            }
-        } catch (...) {
-            // If this is the initial userID assignment, don't print it.
-            try { std::stoi(buffer); continue; } catch (...) {}
-            // Print raw, non-deserializable messages in gray.
-            std::cout << "\r\033[90m" << buffer << "\033[0m" << std::endl;
-        }
-        if (inChatroom || inDM) {
-            std::cout << "\033[32m[Me]:\033[0m ";
-        } else {
-            std::cout << ">> ";
-        }
-        std::cout.flush();
-    }
-    shouldExit.store(true);
-}
-
 void Client::closeConnection() {
-    netManager_->closeSocket(sock_);
+    if (strategy_) {
+        strategy_->stopListening();
+        strategy_->onDisconnected();
+    }
+    if (sock_ != -1) {
+        netManager_->closeSocket(sock_);
+        sock_ = -1;
+    }
 }
