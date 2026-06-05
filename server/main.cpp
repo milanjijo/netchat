@@ -1,8 +1,9 @@
 #include "server/Server.h"
 #include "network/NetworkManager.h"
 #include "network/PosixNetworkConnection.h"
-#include "server/strategies/BlockingIOStrategy.h"
+#include "server/strategies/EpollStrategy.h"
 #include "server/strategies/SelectStrategy.h"
+#include "server/strategies/BlockingIOStrategy.h"
 #include <memory>
 #include <csignal>
 #include <atomic>
@@ -27,9 +28,9 @@ int main() {
     PosixNetworkConnection posixConn;
     NetworkManager netManager(&posixConn);
 
+    auto strategy = std::make_unique<EpollStrategy>(&netManager);
 
-    auto strategy = std::make_unique<SelectStrategy>(&netManager, 4);
-
+    // auto strategy = std::make_unique<SelectStrategy>(&netManager, 4);
     // auto strategy = std::make_unique<BlockingIOStrategy>(&netManager);
 
     Server server(&netManager, std::move(strategy));

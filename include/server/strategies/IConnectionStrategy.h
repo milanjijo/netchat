@@ -1,6 +1,7 @@
 #pragma once
 #include <functional>
 #include <string>
+#include <cstddef>
 
 struct IOEvent {
     enum class Type {
@@ -24,4 +25,6 @@ public:
     virtual void addSocket(int socket) = 0;
     virtual void removeSocket(int socket) = 0;
     virtual const char* getName() const = 0;
+    virtual size_t activeConnectionCount() const { return 0; }
+    virtual std::string stats() const { return ""; }
 };

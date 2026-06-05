@@ -8,7 +8,6 @@
 #include "domain/User.h"
 #include "domain/ChatRoom.h"
 
-// ── Construction / destruction ────────────────────────────────────────────────
 
 Server::Server(NetworkManager* netManager, std::unique_ptr<IConnectionStrategy> strategy)
     : netManager_(netManager),
@@ -32,7 +31,6 @@ void Server::setStrategy(std::unique_ptr<IConnectionStrategy> strategy) {
     }
 }
 
-// ── Lifecycle ─────────────────────────────────────────────────────────────────
 
 void Server::start() {
     server_fd = netManager_->startServer(12345);
