@@ -1,13 +1,14 @@
 #include "server/strategies/BlockingIOStrategy.h"
+
 #include <iostream>
 #include <thread>
 
 BlockingIOStrategy::BlockingIOStrategy(NetworkManager* net) : net_(net) {}
 
 void BlockingIOStrategy::run(int serverSocket, IOEventCallback onEvent) {
-    running_      = true;
+    running_ = true;
     serverSocket_ = serverSocket;
-    onEvent_      = std::move(onEvent);
+    onEvent_ = std::move(onEvent);
 
     std::cout << "[BlockingIOStrategy] Starting with thread-per-client model\n";
 
@@ -23,7 +24,7 @@ void BlockingIOStrategy::run(int serverSocket, IOEventCallback onEvent) {
 
         std::cout << "[BlockingIOStrategy] New connection on fd " << clientSock << "\n";
 
-        onEvent_({ IOEvent::Type::NewConnection, clientSock, {} });
+        onEvent_({IOEvent::Type::NewConnection, clientSock, {}});
     }
 
     std::cout << "[BlockingIOStrategy] Stopped\n";
@@ -41,7 +42,7 @@ void BlockingIOStrategy::stop() {
 }
 
 void BlockingIOStrategy::addSocket(int socket) {
-    // Handshake succeeded — spawn the per-client read thread now.
+    // Handshake succeeded -- spawn the per-client read thread now.
     std::thread([this, socket]() {
         clientReadLoop(socket);
     }).detach();
@@ -52,7 +53,6 @@ void BlockingIOStrategy::removeSocket(int socket) {
     std::lock_guard<std::mutex> lock(removedMutex_);
     removedSockets_.insert(socket);
 }
-
 
 void BlockingIOStrategy::clientReadLoop(int socket) {
     std::cout << "[BlockingIOStrategy] Read thread started for fd " << socket << "\n";
@@ -70,11 +70,11 @@ void BlockingIOStrategy::clientReadLoop(int socket) {
         std::string data = net_->receiveMessage(socket);
 
         if (data.empty()) {
-            onEvent_({ IOEvent::Type::Disconnected, socket, {} });
+            onEvent_({IOEvent::Type::Disconnected, socket, {}});
             return;
         }
 
-        onEvent_({ IOEvent::Type::DataAvailable, socket, std::move(data) });
+        onEvent_({IOEvent::Type::DataAvailable, socket, std::move(data)});
     }
 
     std::cout << "[BlockingIOStrategy] Read thread exiting for fd " << socket << "\n";

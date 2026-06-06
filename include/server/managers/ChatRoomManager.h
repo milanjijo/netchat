@@ -1,19 +1,20 @@
 #pragma once
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <mutex>
+
 #include "domain/ChatRoom.h"
 
 // Manages chatroom creation, membership, and operations.
 class ChatRoomManager {
-private:
+   private:
     std::unordered_map<int, std::unique_ptr<ChatRoom>> chatRooms;
     std::unordered_map<std::string, int> roomNameToID;
     mutable std::recursive_mutex mutex_;
 
-public:
+   public:
     ChatRoomManager() = default;
     ~ChatRoomManager() = default;
 

@@ -1,17 +1,18 @@
 #include "gui/ClientController.h"
-#include "gui/NetworkWorker.h"
+
 #include <QThread>
+
+#include "gui/NetworkWorker.h"
 
 ClientController::ClientController(QObject* parent)
     : QObject(parent), connected(false) {
-    
     // Create worker and thread
     worker = new NetworkWorker();
     workerThread = new QThread(this);
-    
+
     // Move worker to thread
     worker->moveToThread(workerThread);
-    
+
     // Connect signals from worker to controller (to forward to UI)
     connect(worker, &NetworkWorker::messageReceived,
             this, &ClientController::messageReceived);
@@ -27,7 +28,7 @@ ClientController::ClientController(QObject* parent)
             });
     connect(worker, &NetworkWorker::errorOccurred,
             this, &ClientController::errorOccurred);
-    
+
     // Connect controller signals to worker slots
     connect(this, &ClientController::requestConnect,
             worker, &NetworkWorker::connectToServer);
@@ -35,11 +36,11 @@ ClientController::ClientController(QObject* parent)
             worker, &NetworkWorker::sendMessage);
     connect(this, &ClientController::requestDisconnect,
             worker, &NetworkWorker::disconnectFromServer);
-    
+
     // Cleanup when thread finishes
     connect(workerThread, &QThread::finished,
             worker, &QObject::deleteLater);
-    
+
     // Start the worker thread
     workerThread->start();
 }
@@ -49,7 +50,7 @@ ClientController::~ClientController() {
     if (connected) {
         disconnectFromServer();
     }
-    
+
     workerThread->quit();
     workerThread->wait();
 }
@@ -59,7 +60,7 @@ void ClientController::connectToServer(const QString& ip, int port, const QStrin
         emit errorOccurred("Already connected to a server");
         return;
     }
-    
+
     emit requestConnect(ip, port, username);
 }
 
@@ -68,7 +69,7 @@ void ClientController::sendMessage(const QString& message) {
         emit errorOccurred("Not connected to server");
         return;
     }
-    
+
     emit requestSendMessage(message);
 }
 
@@ -76,6 +77,6 @@ void ClientController::disconnectFromServer() {
     if (!connected) {
         return;
     }
-    
+
     emit requestDisconnect();
 }

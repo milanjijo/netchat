@@ -1,7 +1,10 @@
 #include "client/strategies/BlockingClientStrategy.h"
-#include "protocol/Serializer.h"
+
 #include <unistd.h>
+
 #include <iostream>
+
+#include "protocol/Serializer.h"
 
 BlockingClientStrategy::BlockingClientStrategy(NetworkManager* netManager)
     : netManager_(netManager), socket_(-1), shouldStop_(false), listening_(false) {
@@ -25,7 +28,7 @@ void BlockingClientStrategy::sendMessage(const NetworkMessage& msg) {
         if (onError_) onError_("Not connected to server");
         return;
     }
-    
+
     try {
         std::string data = Serializer::serialize(msg);
         netManager_->sendMessage(socket_, data);
@@ -38,16 +41,16 @@ void BlockingClientStrategy::startListening() {
     if (listening_.load() || socket_ == -1) {
         return;
     }
-    
+
     shouldStop_.store(false);
     listening_.store(true);
-    
+
     listenerThread_ = std::make_unique<std::thread>(&BlockingClientStrategy::blockingListenLoop, this);
 }
 
 void BlockingClientStrategy::stopListening() {
     shouldStop_.store(true);
-    
+
     if (listenerThread_ && listenerThread_->joinable()) {
         // Close socket to unblock receiveMessage if needed
         if (socket_ >= 0) {
@@ -55,29 +58,29 @@ void BlockingClientStrategy::stopListening() {
         }
         listenerThread_->join();
     }
-    
+
     listening_.store(false);
 }
 
 void BlockingClientStrategy::blockingListenLoop() {
     if (socket_ == -1) return;
-    
+
     while (!shouldStop_.load()) {
         try {
             std::string buffer = netManager_->receiveMessage(socket_);
-            
+
             if (buffer.empty()) {
                 // Server disconnected
                 if (onDisconnect_) onDisconnect_();
                 break;
             }
-            
+
             if (buffer == "Goodbye! Exiting chat.") {
                 if (onRawMessage_) onRawMessage_(buffer);
                 if (onDisconnect_) onDisconnect_();
                 break;
             }
-            
+
             // Try to deserialize as NetworkMessage
             try {
                 NetworkMessage msg = Serializer::deserialize(buffer);
@@ -86,14 +89,14 @@ void BlockingClientStrategy::blockingListenLoop() {
                 // If deserialization fails, pass as raw message
                 // (could be user ID or other non-structured data)
                 try {
-                    std::stoi(buffer); // Check if it's a number (user ID)
+                    std::stoi(buffer);  // Check if it's a number (user ID)
                     // Skip user ID messages
                     continue;
                 } catch (...) {
                     if (onRawMessage_) onRawMessage_(buffer);
                 }
             }
-            
+
         } catch (const std::exception& e) {
             if (!shouldStop_.load()) {
                 if (onError_) onError_(std::string("Error in listen loop: ") + e.what());
@@ -101,7 +104,7 @@ void BlockingClientStrategy::blockingListenLoop() {
             break;
         }
     }
-    
+
     shouldStop_.store(true);
     listening_.store(false);
 }

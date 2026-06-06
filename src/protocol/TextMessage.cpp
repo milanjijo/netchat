@@ -1,5 +1,6 @@
 #include "protocol/TextMessage.h"
-#include<iostream>
+
+#include <iostream>
 
 TextMessage::TextMessage(int msgID, int sender, const std::string& time, const std::string& txt)
     : Message(msgID, sender, time), text(txt) {}

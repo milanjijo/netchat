@@ -1,7 +1,7 @@
 
 #include "network/NetworkManager.h"
-#include "network/INetworkConnection.h"
 
+#include "network/INetworkConnection.h"
 
 NetworkManager::NetworkManager(INetworkConnection* connection)
     : connection_(connection) {}

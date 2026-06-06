@@ -2,16 +2,15 @@
 
 #include <string>
 
-
 class User {
-private:
+   private:
     int userID;
     std::string username;
     int roomID = -1;
     int socket = -1;
-    std::string dmTarget; // username of DM target, if any
+    std::string dmTarget;  // username of DM target, if any
 
-public:
+   public:
     User(int id, const std::string& username, int socket);
     void setRoom(int id);
     int getRoomID() const { return roomID; }

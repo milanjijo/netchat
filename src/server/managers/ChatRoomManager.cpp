@@ -1,10 +1,11 @@
 #include "server/managers/ChatRoomManager.h"
-#include <iostream>
+
 #include <algorithm>
+#include <iostream>
 
 int ChatRoomManager::getOrCreateRoom(const std::string& roomName) {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
-    
+
     // Check if room already exists
     auto it = roomNameToID.find(roomName);
     if (it != roomNameToID.end()) {
@@ -16,7 +17,7 @@ int ChatRoomManager::getOrCreateRoom(const std::string& roomName) {
     chatRooms[roomID] = std::make_unique<ChatRoom>(roomID, roomName);
     roomNameToID[roomName] = roomID;
 
-    std::cout << "[ChatRoomManager] Created room: " << roomName 
+    std::cout << "[ChatRoomManager] Created room: " << roomName
               << " (ID: " << roomID << ")" << std::endl;
 
     return roomID;
@@ -24,21 +25,21 @@ int ChatRoomManager::getOrCreateRoom(const std::string& roomName) {
 
 bool ChatRoomManager::addUserToRoom(int roomID, int userID) {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
-    
+
     auto it = chatRooms.find(roomID);
     if (it == chatRooms.end()) {
         return false;
     }
 
     it->second->addParticipant(userID);
-    std::cout << "[ChatRoomManager] Added user " << userID 
+    std::cout << "[ChatRoomManager] Added user " << userID
               << " to room " << roomID << std::endl;
     return true;
 }
 
 bool ChatRoomManager::removeUserFromRoom(int roomID, int userID) {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
-    
+
     auto it = chatRooms.find(roomID);
     if (it == chatRooms.end()) {
         return false;
@@ -47,10 +48,9 @@ bool ChatRoomManager::removeUserFromRoom(int roomID, int userID) {
     auto& participants = it->second->getParticipants();
     participants.erase(
         std::remove(participants.begin(), participants.end(), userID),
-        participants.end()
-    );
+        participants.end());
 
-    std::cout << "[ChatRoomManager] Removed user " << userID 
+    std::cout << "[ChatRoomManager] Removed user " << userID
               << " from room " << roomID << std::endl;
     return true;
 }

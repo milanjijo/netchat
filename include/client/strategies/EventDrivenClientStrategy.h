@@ -1,11 +1,12 @@
 #pragma once
 
-#include "client/IClientStrategy.h"
-#include "network/NetworkManager.h"
 #include <QObject>
 #include <QSocketNotifier>
-#include <string>
 #include <atomic>
+#include <string>
+
+#include "client/IClientStrategy.h"
+#include "network/NetworkManager.h"
 
 /**
  * Event-driven I/O strategy for Qt GUI clients.
@@ -14,39 +15,39 @@
  */
 class EventDrivenClientStrategy : public QObject, public IClientStrategy {
     Q_OBJECT
-    
-public:
+
+   public:
     explicit EventDrivenClientStrategy(NetworkManager* netManager, QObject* parent = nullptr);
     ~EventDrivenClientStrategy() override;
-    
+
     // IClientStrategy interface
     void onConnected(int socket) override;
     void onDisconnected() override;
     void sendMessage(const NetworkMessage& msg) override;
     void startListening() override;
     void stopListening() override;
-    
+
     void setMessageCallback(MessageCallback cb) override { onMessage_ = cb; }
     void setRawMessageCallback(RawMessageCallback cb) override { onRawMessage_ = cb; }
     void setErrorCallback(ErrorCallback cb) override { onError_ = cb; }
     void setDisconnectCallback(DisconnectCallback cb) override { onDisconnect_ = cb; }
-    
+
     bool isListening() const override { return listening_.load(); }
-    
-private slots:
+
+   private slots:
     void onSocketReadable();
-    
-private:
+
+   private:
     void parseIncomingData();
     ssize_t nonBlockingRead(char* buffer, size_t size);
-    
+
     NetworkManager* netManager_;
     int socket_;
     QSocketNotifier* socketNotifier_;
     std::atomic<bool> listening_;
-    
-    std::string receiveBuffer_; // Accumulates partial messages
-    
+
+    std::string receiveBuffer_;  // Accumulates partial messages
+
     // Callbacks
     MessageCallback onMessage_;
     RawMessageCallback onRawMessage_;

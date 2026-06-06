@@ -1,10 +1,11 @@
 #include "server/managers/DMManager.h"
+
 #include <iostream>
 
 void DMManager::createDMRequest(const std::string& requesterName, const std::string& targetName) {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
     pendingDMs[targetName] = requesterName;
-    std::cout << "[DMManager] DM request created: " << requesterName 
+    std::cout << "[DMManager] DM request created: " << requesterName
               << " -> " << targetName << std::endl;
 }
 

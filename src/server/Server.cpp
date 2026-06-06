@@ -1,21 +1,21 @@
 #include "server/Server.h"
-#include <memory>
-#include <unordered_map>
+
 #include <iostream>
+#include <memory>
 #include <sstream>
+#include <unordered_map>
+
+#include "domain/ChatRoom.h"
+#include "domain/User.h"
 #include "protocol/NetworkMessage.h"
 #include "protocol/Serializer.h"
-#include "domain/User.h"
-#include "domain/ChatRoom.h"
-
 
 Server::Server(NetworkManager* netManager, std::unique_ptr<IConnectionStrategy> strategy)
     : netManager_(netManager),
       userManager_(std::make_unique<UserManager>()),
       roomManager_(std::make_unique<ChatRoomManager>()),
       dmManager_(std::make_unique<DMManager>()),
-      connectionStrategy_(std::move(strategy))
-{
+      connectionStrategy_(std::move(strategy)) {
     initializeCommandHandlers();
     if (connectionStrategy_) {
         std::cout << "[Server] Created with " << connectionStrategy_->getName() << "\n";
@@ -31,16 +31,14 @@ void Server::setStrategy(std::unique_ptr<IConnectionStrategy> strategy) {
     }
 }
 
-
 void Server::start() {
     server_fd = netManager_->startServer(12345);
     std::cout << "[Server] Started on fd " << server_fd << "\n";
 
-    // Single, clean entry point — strategy fires IOEvents; Server dispatches them.
+    // Single, clean entry point -- strategy fires IOEvents; Server dispatches them.
     connectionStrategy_->run(
         server_fd,
-        [this](IOEvent ev) { onIOEvent(ev); }
-    );
+        [this](IOEvent ev) { onIOEvent(ev); });
 }
 
 void Server::stop() {
@@ -67,43 +65,42 @@ void Server::stop() {
 
 void Server::onIOEvent(IOEvent event) {
     switch (event.type) {
+        case IOEvent::Type::NewConnection: {
+            int userID = performHandshake(event.socket);
+            if (userID < 0) break;
 
-    case IOEvent::Type::NewConnection: {
-        int userID = performHandshake(event.socket);
-        if (userID < 0) break;
+            {
+                std::lock_guard<std::mutex> lock(clientsMutex_);
+                socketToUser_[event.socket] = userID;
+            }
 
-        {
-            std::lock_guard<std::mutex> lock(clientsMutex_);
-            socketToUser_[event.socket] = userID;
+            connectionStrategy_->addSocket(event.socket);
+            break;
         }
 
-        connectionStrategy_->addSocket(event.socket);
-        break;
-    }
+        case IOEvent::Type::DataAvailable: {
+            onDataAvailable(event.socket, event.data);
+            break;
+        }
 
-    case IOEvent::Type::DataAvailable: {
-        onDataAvailable(event.socket, event.data);
-        break;
-    }
-
-    case IOEvent::Type::Disconnected: {
-        disconnectClient(event.socket);
-        break;
-    }
+        case IOEvent::Type::Disconnected: {
+            disconnectClient(event.socket);
+            break;
+        }
     }
 }
 
 int Server::performHandshake(int socket) {
     std::string username = netManager_->receiveMessage(socket);
     if (username.empty()) {
-        std::cout << "[Server] Empty username — closing fd " << socket << "\n";
+        std::cout << "[Server] Empty username -- closing fd " << socket << "\n";
         netManager_->closeSocket(socket);
         return -1;
     }
 
     int userID = userManager_->registerUser(username, socket);
     if (userID == -1) {
-        std::cout << "[Server] Username '" << username << "' already exists — rejecting fd "
+        std::cout << "[Server] Username '" << username << "' already exists -- rejecting fd "
                   << socket << "\n";
         netManager_->sendMessage(socket, "ERROR:Username already exists");
         netManager_->closeSocket(socket);
@@ -121,7 +118,7 @@ void Server::onDataAvailable(int socket, const std::string& rawMessage) {
     {
         std::lock_guard<std::mutex> lock(clientsMutex_);
         auto it = socketToUser_.find(socket);
-        if (it == socketToUser_.end()) return; 
+        if (it == socketToUser_.end()) return;
         userID = it->second;
     }
 
@@ -160,7 +157,6 @@ void Server::disconnectClient(int socket) {
               << " (fd=" << socket << ") disconnected\n";
 }
 
-
 bool Server::processClientMessage(int socket, int userID, const std::string& msgStr) {
     NetworkMessage msg = Serializer::deserialize(msgStr);
 
@@ -173,9 +169,8 @@ bool Server::processClientMessage(int socket, int userID, const std::string& msg
                   << ": /" << command << " " << args << "\n";
         handleCommand(command, args, userID, socket);
         if (command == "exit") return false;
-    }
-    else if (msg.type == "TEXT") {
-        int         roomID   = user->getRoomID();
+    } else if (msg.type == "TEXT") {
+        int roomID = user->getRoomID();
         std::string dmTarget = user->getDMTarget();
 
         if (roomID != -1) {
@@ -191,7 +186,7 @@ bool Server::processClientMessage(int socket, int userID, const std::string& msg
             }
         } else {
             sendSystemMessage(socket,
-                "[Error] You must join a chatroom or start a DM to send messages.");
+                              "[Error] You must join a chatroom or start a DM to send messages.");
         }
     }
 
@@ -199,8 +194,7 @@ bool Server::processClientMessage(int socket, int userID, const std::string& msg
 }
 
 void Server::handleCommand(const std::string& command, const std::string& args,
-                           int userID, int socket)
-{
+                           int userID, int socket) {
     auto it = commandHandlers_.find(command);
     if (it != commandHandlers_.end()) {
         it->second(args, userID, socket);
@@ -209,20 +203,18 @@ void Server::handleCommand(const std::string& command, const std::string& args,
     }
 }
 
-
 void Server::initializeCommandHandlers() {
-    commandHandlers_["join"]           = [this](const std::string& a, int uid, int sock) { handleJoinCommand(a, uid, sock); };
-    commandHandlers_["leave"]          = [this](const std::string& a, int uid, int sock) { handleLeaveCommand(a, uid, sock); };
-    commandHandlers_["dm"]             = [this](const std::string& a, int uid, int sock) { handleDmCommand(a, uid, sock); };
-    commandHandlers_["accept"]         = [this](const std::string& a, int uid, int sock) { handleAcceptCommand(a, uid, sock); };
-    commandHandlers_["reject"]         = [this](const std::string& a, int uid, int sock) { handleRejectCommand(a, uid, sock); };
-    commandHandlers_["list_users"]     = [this](const std::string& a, int uid, int sock) { handleListUsersCommand(a, uid, sock); };
+    commandHandlers_["join"] = [this](const std::string& a, int uid, int sock) { handleJoinCommand(a, uid, sock); };
+    commandHandlers_["leave"] = [this](const std::string& a, int uid, int sock) { handleLeaveCommand(a, uid, sock); };
+    commandHandlers_["dm"] = [this](const std::string& a, int uid, int sock) { handleDmCommand(a, uid, sock); };
+    commandHandlers_["accept"] = [this](const std::string& a, int uid, int sock) { handleAcceptCommand(a, uid, sock); };
+    commandHandlers_["reject"] = [this](const std::string& a, int uid, int sock) { handleRejectCommand(a, uid, sock); };
+    commandHandlers_["list_users"] = [this](const std::string& a, int uid, int sock) { handleListUsersCommand(a, uid, sock); };
     commandHandlers_["list_chatrooms"] = [this](const std::string& a, int uid, int sock) { handleListChatroomsCommand(a, uid, sock); };
-    commandHandlers_["members"]        = [this](const std::string& a, int uid, int sock) { handleMembersCommand(a, uid, sock); };
-    commandHandlers_["help"]           = [this](const std::string& a, int uid, int sock) { handleHelpCommand(a, uid, sock); };
-    commandHandlers_["exit"]           = [this](const std::string& a, int uid, int sock) { handleExitCommand(a, uid, sock); };
+    commandHandlers_["members"] = [this](const std::string& a, int uid, int sock) { handleMembersCommand(a, uid, sock); };
+    commandHandlers_["help"] = [this](const std::string& a, int uid, int sock) { handleHelpCommand(a, uid, sock); };
+    commandHandlers_["exit"] = [this](const std::string& a, int uid, int sock) { handleExitCommand(a, uid, sock); };
 }
-
 
 void Server::handleExitCommand(const std::string& /*args*/, int userID, int socket) {
     std::cout << "[Server] UserID=" << userID << " requested exit\n";
@@ -244,8 +236,8 @@ void Server::handleJoinCommand(const std::string& args, int userID, int socket) 
 
     sendSystemMessage(socket, "Joined room: " + args);
 
-    std::string username      = user ? user->getName() : "A user";
-    std::string notification  = username + " has joined the chat.";
+    std::string username = user ? user->getName() : "A user";
+    std::string notification = username + " has joined the chat.";
     NetworkMessage broadcastMsg{"SERVER", "SYSTEM", notification};
     broadcastToRoom(roomID, Serializer::serialize(broadcastMsg), userID);
 }
@@ -254,7 +246,7 @@ void Server::handleLeaveCommand(const std::string& /*args*/, int userID, int soc
     User* user = userManager_->getUser(userID);
     if (!user) return;
 
-    int         roomID   = user->getRoomID();
+    int roomID = user->getRoomID();
     std::string dmTarget = user->getDMTarget();
 
     if (roomID != -1) {
@@ -274,16 +266,15 @@ void Server::handleLeaveCommand(const std::string& /*args*/, int userID, int soc
 }
 
 void Server::handleDmCommand(const std::string& args, int userID, int socket) {
-    User* target    = userManager_->getUser(args);
+    User* target = userManager_->getUser(args);
     User* requester = userManager_->getUser(userID);
 
     if (target && requester) {
         dmManager_->createDMRequest(requester->getName(), args);
         sendSystemMessage(socket,
-            "DM request sent to " + args + ". Waiting for them to /accept.");
+                          "DM request sent to " + args + ". Waiting for them to /accept.");
         sendSystemMessage(target->getSocket(),
-            requester->getName() + " wants to start a DM with you. Use /accept "
-            + requester->getName() + " or /reject " + requester->getName());
+                          requester->getName() + " wants to start a DM with you. Use /accept " + requester->getName() + " or /reject " + requester->getName());
     } else {
         sendSystemMessage(socket, "[Error] User not found or not online: " + args);
     }
@@ -335,7 +326,7 @@ void Server::handleRejectCommand(const std::string& args, int userID, int socket
     sendSystemMessage(socket, "You have rejected the DM request from " + args);
     if (requester) {
         sendSystemMessage(requester->getSocket(),
-            selfName + " has rejected your DM request.");
+                          selfName + " has rejected your DM request.");
     }
 }
 
@@ -368,37 +359,48 @@ void Server::handleListChatroomsCommand(const std::string& /*args*/, int /*userI
 
 void Server::handleMembersCommand(const std::string& /*args*/, int userID, int socket) {
     User* user = userManager_->getUser(userID);
-    if (!user) { sendSystemMessage(socket, "[Error] User not found."); return; }
+    if (!user) {
+        sendSystemMessage(socket, "[Error] User not found.");
+        return;
+    }
 
     int roomID = user->getRoomID();
-    if (roomID == -1) { sendSystemMessage(socket, "[Error] You are not in a chatroom."); return; }
+    if (roomID == -1) {
+        sendSystemMessage(socket, "[Error] You are not in a chatroom.");
+        return;
+    }
 
     ChatRoom* room = roomManager_->getRoom(roomID);
-    if (!room) { sendSystemMessage(socket, "[Error] Chatroom not found."); return; }
+    if (!room) {
+        sendSystemMessage(socket, "[Error] Chatroom not found.");
+        return;
+    }
 
     std::ostringstream oss;
     oss << "Members in room '" << room->getName() << "':\n";
     for (int uid : room->getParticipants()) {
         User* m = userManager_->getUser(uid);
-        if (m) oss << "- " << m->getName() << "\n";
-        else   oss << "- [Unknown userID " << uid << "]\n";
+        if (m)
+            oss << "- " << m->getName() << "\n";
+        else
+            oss << "- [Unknown userID " << uid << "]\n";
     }
     sendSystemMessage(socket, oss.str());
 }
 
 void Server::handleHelpCommand(const std::string& /*args*/, int /*userID*/, int socket) {
     sendSystemMessage(socket,
-        "Available commands:\n"
-        "/join <room>         - Join or create a chatroom\n"
-        "/leave               - Leave the current chatroom or DM\n"
-        "/dm <username>       - Start a direct message with a user\n"
-        "/accept <username>   - Accept a DM request\n"
-        "/reject <username>   - Reject a DM request\n"
-        "/list_users          - List all online users\n"
-        "/list_chatrooms      - List all chatrooms\n"
-        "/members             - List members in the current chatroom\n"
-        "/exit                - Exit the chat\n"
-        "/help                - Show this help message");
+                      "Available commands:\n"
+                      "/join <room>         - Join or create a chatroom\n"
+                      "/leave               - Leave the current chatroom or DM\n"
+                      "/dm <username>       - Start a direct message with a user\n"
+                      "/accept <username>   - Accept a DM request\n"
+                      "/reject <username>   - Reject a DM request\n"
+                      "/list_users          - List all online users\n"
+                      "/list_chatrooms      - List all chatrooms\n"
+                      "/members             - List members in the current chatroom\n"
+                      "/exit                - Exit the chat\n"
+                      "/help                - Show this help message");
 }
 
 void Server::leaveChatRoom(int userID) {

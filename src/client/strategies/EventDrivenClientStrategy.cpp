@@ -1,13 +1,15 @@
 #include "client/strategies/EventDrivenClientStrategy.h"
-#include "protocol/Serializer.h"
-#include <unistd.h>
-#include <fcntl.h>
+
 #include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
+
 #include <cstring>
 
+#include "protocol/Serializer.h"
+
 EventDrivenClientStrategy::EventDrivenClientStrategy(NetworkManager* netManager, QObject* parent)
-    : QObject(parent), netManager_(netManager), socket_(-1), 
-      socketNotifier_(nullptr), listening_(false) {
+    : QObject(parent), netManager_(netManager), socket_(-1), socketNotifier_(nullptr), listening_(false) {
 }
 
 EventDrivenClientStrategy::~EventDrivenClientStrategy() {
@@ -16,7 +18,7 @@ EventDrivenClientStrategy::~EventDrivenClientStrategy() {
 
 void EventDrivenClientStrategy::onConnected(int socket) {
     socket_ = socket;
-    
+
     // Set socket to non-blocking mode
     int flags = fcntl(socket_, F_GETFL, 0);
     if (flags != -1) {
@@ -35,7 +37,7 @@ void EventDrivenClientStrategy::sendMessage(const NetworkMessage& msg) {
         if (onError_) onError_("Not connected to server");
         return;
     }
-    
+
     try {
         std::string data = Serializer::serialize(msg);
         netManager_->sendMessage(socket_, data);
@@ -48,12 +50,12 @@ void EventDrivenClientStrategy::startListening() {
     if (listening_.load() || socket_ == -1) {
         return;
     }
-    
+
     // Create QSocketNotifier for read events
     socketNotifier_ = new QSocketNotifier(socket_, QSocketNotifier::Read, this);
-    connect(socketNotifier_, &QSocketNotifier::activated, 
+    connect(socketNotifier_, &QSocketNotifier::activated,
             this, &EventDrivenClientStrategy::onSocketReadable);
-    
+
     socketNotifier_->setEnabled(true);
     listening_.store(true);
 }
@@ -70,9 +72,9 @@ void EventDrivenClientStrategy::stopListening() {
 void EventDrivenClientStrategy::onSocketReadable() {
     const size_t CHUNK_SIZE = 4096;
     char buffer[CHUNK_SIZE];
-    
+
     ssize_t bytesRead = nonBlockingRead(buffer, CHUNK_SIZE - 1);
-    
+
     if (bytesRead > 0) {
         buffer[bytesRead] = '\0';
         receiveBuffer_.append(buffer, bytesRead);
@@ -96,36 +98,36 @@ ssize_t EventDrivenClientStrategy::nonBlockingRead(char* buffer, size_t size) {
 void EventDrivenClientStrategy::parseIncomingData() {
     // Network messages are length-prefixed in our protocol
     // Format: [4-byte length][message data]
-    
+
     while (receiveBuffer_.size() >= 4) {
         // Read message length (first 4 bytes, network byte order)
         uint32_t msgLength;
         std::memcpy(&msgLength, receiveBuffer_.data(), 4);
-        msgLength = ntohl(msgLength); // Convert from network to host byte order
-        
+        msgLength = ntohl(msgLength);  // Convert from network to host byte order
+
         // Check if we have the complete message
         if (receiveBuffer_.size() < 4 + msgLength) {
             // Need more data
             break;
         }
-        
+
         // Extract the complete message
         std::string message = receiveBuffer_.substr(4, msgLength);
         receiveBuffer_.erase(0, 4 + msgLength);
-        
+
         // Process the message
         if (message.empty()) {
             // Server disconnected
             if (onDisconnect_) onDisconnect_();
             break;
         }
-        
+
         if (message == "Goodbye! Exiting chat.") {
             if (onRawMessage_) onRawMessage_(message);
             if (onDisconnect_) onDisconnect_();
             break;
         }
-        
+
         // Try to deserialize as NetworkMessage
         try {
             NetworkMessage msg = Serializer::deserialize(message);

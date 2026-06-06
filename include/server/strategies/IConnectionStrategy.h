@@ -1,7 +1,7 @@
 #pragma once
+#include <cstddef>
 #include <functional>
 #include <string>
-#include <cstddef>
 
 struct IOEvent {
     enum class Type {
@@ -18,7 +18,7 @@ struct IOEvent {
 using IOEventCallback = std::function<void(IOEvent)>;
 
 class IConnectionStrategy {
-public:
+   public:
     virtual ~IConnectionStrategy() = default;
     virtual void run(int serverSocket, IOEventCallback onEvent) = 0;
     virtual void stop() = 0;

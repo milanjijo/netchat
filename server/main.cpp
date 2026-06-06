@@ -1,13 +1,14 @@
-#include "server/Server.h"
+#include <atomic>
+#include <csignal>
+#include <iostream>
+#include <memory>
+
 #include "network/NetworkManager.h"
 #include "network/PosixNetworkConnection.h"
+#include "server/Server.h"
+#include "server/strategies/BlockingIOStrategy.h"
 #include "server/strategies/EpollStrategy.h"
 #include "server/strategies/SelectStrategy.h"
-#include "server/strategies/BlockingIOStrategy.h"
-#include <memory>
-#include <csignal>
-#include <atomic>
-#include <iostream>
 
 static std::atomic<bool> shutdownRequested{false};
 static Server* globalServer = nullptr;

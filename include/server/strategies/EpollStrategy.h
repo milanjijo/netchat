@@ -1,18 +1,18 @@
 #pragma once
-#include "server/strategies/IConnectionStrategy.h"
-#include "network/NetworkManager.h"
-
 #include <atomic>
+#include <condition_variable>
+#include <cstddef>
+#include <mutex>
+#include <queue>
+#include <string>
 #include <thread>
 #include <vector>
-#include <queue>
-#include <mutex>
-#include <condition_variable>
-#include <string>
-#include <cstddef>
+
+#include "network/NetworkManager.h"
+#include "server/strategies/IConnectionStrategy.h"
 
 class EpollStrategy : public IConnectionStrategy {
-public:
+   public:
     explicit EpollStrategy(NetworkManager* net,
                            size_t numWorkers = std::thread::hardware_concurrency());
     ~EpollStrategy() override;
@@ -26,9 +26,9 @@ public:
     size_t activeConnectionCount() const override;
     std::string stats() const override;
 
-private:
+   private:
     struct WorkItem {
-        int  socket;
+        int socket;
         bool isHandshake;
     };
 
@@ -43,18 +43,18 @@ private:
     std::atomic<size_t> activeConnections_{0};
     std::atomic<uint64_t> totalEvents_{0};
 
-    int epollFd_     {-1};
+    int epollFd_{-1};
     int serverSocket_{-1};
-    int wakePipe_[2] {-1, -1};
+    int wakePipe_[2]{-1, -1};
 
-    NetworkManager*  net_    {nullptr};
-    IOEventCallback  onEvent_;
+    NetworkManager* net_{nullptr};
+    IOEventCallback onEvent_;
 
-    size_t                   numWorkers_;
-    std::thread              monitorThread_;
+    size_t numWorkers_;
+    std::thread monitorThread_;
     std::vector<std::thread> workers_;
 
-    std::queue<WorkItem>     workQueue_;
-    std::mutex               queueMutex_;
-    std::condition_variable  queueCV_;
+    std::queue<WorkItem> workQueue_;
+    std::mutex queueMutex_;
+    std::condition_variable queueCV_;
 };

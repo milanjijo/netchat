@@ -1,11 +1,13 @@
 #include "gui/NetworkWorker.h"
+
+#include <QThread>
+
 #include "client/Client.h"
 #include "client/strategies/EventDrivenClientStrategy.h"
 #include "network/NetworkManager.h"
 #include "network/PosixNetworkConnection.h"
-#include "protocol/Serializer.h"
 #include "protocol/NetworkMessage.h"
-#include <QThread>
+#include "protocol/Serializer.h"
 
 NetworkWorker::NetworkWorker(QObject* parent)
     : QObject(parent), inChatroom(false), inDM(false) {
@@ -18,64 +20,64 @@ NetworkWorker::~NetworkWorker() {
 void NetworkWorker::connectToServer(const QString& ip, int port, const QString& username) {
     try {
         this->username = username;
-        
+
         // Create networking components
         posixConn = std::make_unique<PosixNetworkConnection>();
         netManager = std::make_unique<NetworkManager>(posixConn.get());
-        
+
         // First, connect WITHOUT strategy (socket remains blocking)
         int sock = netManager->connectToServer(ip.toStdString(), port);
-        
+
         // Register with server and get user ID (blocking call)
         netManager->sendMessage(sock, username.toStdString());
         std::string idStr = netManager->receiveMessage(sock);
-        
+
         int userID = -1;
         try {
             userID = std::stoi(idStr);
             emit messageReceived(QString("<span style='color: #4CAF50;'>[SYSTEM] Registered with user ID: %1</span>")
-                               .arg(userID));
+                                     .arg(userID));
         } catch (...) {
             emit errorOccurred("Failed to receive user ID from server");
             netManager->closeSocket(sock);
             return;
         }
-        
+
         // Now create event-driven strategy for ongoing communication
         auto strategy = std::make_unique<EventDrivenClientStrategy>(netManager.get(), this);
-        
+
         // Register callbacks using lambda to call member functions
         strategy->setMessageCallback([this](const NetworkMessage& msg) {
             onMessageFromServer(msg);
         });
-        
+
         strategy->setRawMessageCallback([this](const std::string& raw) {
             onRawMessage(raw);
         });
-        
+
         strategy->setErrorCallback([this](const std::string& error) {
             onError(error);
         });
-        
+
         strategy->setDisconnectCallback([this]() {
             onDisconnect();
         });
-        
+
         // Create client with strategy and already-connected socket
         client = std::make_unique<Client>(username.toStdString(), netManager.get(),
-                                         std::move(strategy));
-        
+                                          std::move(strategy));
+
         // Manually set the socket since we already connected
         client->setSocket(sock);
-        
+
         // Notify strategy that socket is connected (this sets non-blocking and starts QSocketNotifier)
         client->getStrategy()->onConnected(sock);
-        
+
         // Start listening (event-driven, non-blocking)
         client->getStrategy()->startListening();
-        
+
         emit connected();
-        
+
     } catch (const std::exception& e) {
         emit errorOccurred(QString("Connection failed: %1").arg(e.what()));
     } catch (...) {
@@ -88,17 +90,17 @@ void NetworkWorker::sendMessage(const QString& message) {
         emit errorOccurred("Not connected to server");
         return;
     }
-    
+
     try {
         std::string msgStr = message.toStdString();
-        
+
         // Check if it's a command (starts with /)
         if (!msgStr.empty() && msgStr[0] == '/') {
             // Handle as command
             size_t spacePos = msgStr.find(' ');
             std::string command;
             std::string args;
-            
+
             if (spacePos == std::string::npos) {
                 command = msgStr.substr(1);
                 args = "";
@@ -106,15 +108,15 @@ void NetworkWorker::sendMessage(const QString& message) {
                 command = msgStr.substr(1, spacePos - 1);
                 args = msgStr.substr(spacePos + 1);
             }
-            
+
             NetworkMessage msg;
             msg.type = "COMMAND";
             msg.content = command + " " + args;
             client->sendMessage(msg);
-            
+
             // Echo command to UI
             emit messageReceived(QString("<span style='color: #FFC107;'>[Command] %1</span>")
-                               .arg(QString::fromStdString(msgStr)));
+                                     .arg(QString::fromStdString(msgStr)));
         } else {
             // Send as regular TEXT message
             NetworkMessage msg;
@@ -122,10 +124,10 @@ void NetworkWorker::sendMessage(const QString& message) {
             msg.type = "TEXT";
             msg.content = msgStr;
             client->sendMessage(msg);
-            
+
             // Echo own message to UI
             emit messageReceived(QString("<span style='color: #4CAF50;'>[Me]:</span> %1")
-                               .arg(message));
+                                     .arg(message));
         }
     } catch (const std::exception& e) {
         emit errorOccurred(QString("Failed to send message: %1").arg(e.what()));
@@ -138,12 +140,12 @@ void NetworkWorker::disconnectFromServer() {
     if (client) {
         client->closeConnection();
     }
-    
+
     // Clean up
     client.reset();
     netManager.reset();
     posixConn.reset();
-    
+
     inChatroom = false;
     inDM = false;
 }
@@ -157,20 +159,20 @@ void NetworkWorker::onMessageFromServer(const NetworkMessage& msg) {
         } else if (msg.content.find("DM session started") != std::string::npos) {
             inDM = true;
             inChatroom = false;
-        } else if (msg.content.find("Left room") != std::string::npos || 
+        } else if (msg.content.find("Left room") != std::string::npos ||
                    msg.content.find("left the DM") != std::string::npos) {
             inChatroom = false;
             inDM = false;
         }
     }
-    
+
     // Format and emit the formatted message
     emit messageReceived(formatMessage(msg));
 }
 
 void NetworkWorker::onRawMessage(const std::string& raw) {
     emit messageReceived(QString("<span style='color: #9E9E9E;'>%1</span>")
-                        .arg(QString::fromStdString(raw)));
+                             .arg(QString::fromStdString(raw)));
 }
 
 void NetworkWorker::onError(const std::string& error) {

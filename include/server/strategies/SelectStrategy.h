@@ -1,16 +1,17 @@
 #pragma once
-#include "server/strategies/IConnectionStrategy.h"
-#include "network/NetworkManager.h"
 #include <atomic>
+#include <condition_variable>
+#include <mutex>
+#include <queue>
+#include <set>
 #include <thread>
 #include <vector>
-#include <queue>
-#include <mutex>
-#include <condition_variable>
-#include <set>
+
+#include "network/NetworkManager.h"
+#include "server/strategies/IConnectionStrategy.h"
 
 class SelectStrategy : public IConnectionStrategy {
-public:
+   public:
     explicit SelectStrategy(NetworkManager* net, size_t numWorkers = 4);
     ~SelectStrategy();
 
@@ -21,11 +22,11 @@ public:
 
     const char* getName() const override { return "SelectStrategy"; }
 
-private:
+   private:
     struct WorkItem {
         int socket;
-        bool isHandshake; // true  → fire IOEvent::NewConnection (server does handshake)
-                          // false → read bytes, fire IOEvent::DataAvailable
+        bool isHandshake;  // true  --> fire IOEvent::NewConnection (server does handshake)
+                           // false --> read bytes, fire IOEvent::DataAvailable
     };
 
     void monitorLoop(int serverSocket);

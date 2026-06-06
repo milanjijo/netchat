@@ -1,29 +1,29 @@
 #pragma once
 
-#include <QMainWindow>
-#include <QTextEdit>
-#include <QLineEdit>
-#include <QPushButton>
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QMenuBar>
-#include <QStatusBar>
-#include <QLabel>
 #include <QCloseEvent>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QLineEdit>
+#include <QMainWindow>
+#include <QMenuBar>
+#include <QPushButton>
+#include <QStatusBar>
+#include <QTextEdit>
+#include <QVBoxLayout>
 
 class ClientController;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
-public:
+   public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow();
 
-protected:
+   protected:
     void closeEvent(QCloseEvent* event) override;
 
-private slots:
+   private slots:
     void onSendButtonClicked();
     void onReturnPressed();
     void onMessageReceived(const QString& message);
@@ -32,7 +32,7 @@ private slots:
     void onConnectAction();
     void onDisconnectAction();
 
-private:
+   private:
     void setupUI();
     void createMenus();
     void appendMessage(const QString& message);
@@ -43,7 +43,7 @@ private:
     QLineEdit* inputBox;
     QPushButton* sendButton;
     QLabel* statusLabel;
-    
+
     // Connection dialog fields
     QString currentUsername;
     QString currentIp;
@@ -51,7 +51,7 @@ private:
 
     // Controller
     ClientController* controller;
-    
+
     // State
     bool isConnected;
 };

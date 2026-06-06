@@ -1,13 +1,14 @@
 #include "server/managers/UserManager.h"
+
 #include <atomic>
 #include <iostream>
 
 int UserManager::registerUser(const std::string& username, int socket) {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
-    
+
     // Check if username already exists
     if (nameToID.find(username) != nameToID.end()) {
-        return -1; // User already exists
+        return -1;  // User already exists
     }
 
     // Generate unique userID
@@ -20,7 +21,7 @@ int UserManager::registerUser(const std::string& username, int socket) {
     nameToID[username] = userID;
     userList[username] = std::move(user);
 
-    std::cout << "[UserManager] Registered user: " << username 
+    std::cout << "[UserManager] Registered user: " << username
               << " (ID: " << userID << ")" << std::endl;
 
     return userID;

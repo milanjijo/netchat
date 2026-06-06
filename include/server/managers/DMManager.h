@@ -1,16 +1,16 @@
 #pragma once
-#include <string>
 #include <map>
 #include <mutex>
+#include <string>
 
 // Manages direct message sessions and requests.
 class DMManager {
-private:
+   private:
     // Maps target username -> requester username for pending DM requests
     std::map<std::string, std::string> pendingDMs;
     mutable std::recursive_mutex mutex_;
 
-public:
+   public:
     DMManager() = default;
     ~DMManager() = default;
 

@@ -1,10 +1,11 @@
 #pragma once
-#include "protocol/NetworkMessage.h"
 #include <string>
+
+#include "protocol/NetworkMessage.h"
 
 // Provides static methods for serializing and deserializing NetworkMessage objects.
 class Serializer {
-public:
+   public:
     // Serializes a NetworkMessage into a pipe-delimited string.
     static std::string serialize(const NetworkMessage& msg);
     // Deserializes a pipe-delimited string into a NetworkMessage.

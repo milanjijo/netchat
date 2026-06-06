@@ -1,20 +1,21 @@
 #pragma once
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <mutex>
+
 #include "domain/User.h"
 
 // Manages user registration, lookup, and lifecycle.
 class UserManager {
-private:
+   private:
     std::unordered_map<std::string, std::unique_ptr<User>> userList;
     std::unordered_map<int, User*> usersByID;
     std::unordered_map<std::string, int> nameToID;
     mutable std::recursive_mutex mutex_;
 
-public:
+   public:
     UserManager() = default;
     ~UserManager() = default;
 

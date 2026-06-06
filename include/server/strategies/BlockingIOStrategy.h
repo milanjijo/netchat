@@ -1,13 +1,15 @@
 #pragma once
-#include "server/strategies/IConnectionStrategy.h"
-#include "network/NetworkManager.h"
-#include <atomic>
-#include <set>
-#include <mutex>
 #include <netinet/in.h>
 
+#include <atomic>
+#include <mutex>
+#include <set>
+
+#include "network/NetworkManager.h"
+#include "server/strategies/IConnectionStrategy.h"
+
 class BlockingIOStrategy : public IConnectionStrategy {
-public:
+   public:
     explicit BlockingIOStrategy(NetworkManager* net);
     ~BlockingIOStrategy() override = default;
 
@@ -23,7 +25,7 @@ public:
 
     const char* getName() const override { return "BlockingIOStrategy"; }
 
-private:
+   private:
     void clientReadLoop(int socket);
 
     std::atomic<bool> running_{false};

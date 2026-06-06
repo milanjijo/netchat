@@ -1,13 +1,13 @@
 #include "SelectStrategy.h"
-#include <iostream>
-#include <unistd.h>
+
 #include <sys/select.h>
+#include <unistd.h>
+
 #include <algorithm>
+#include <iostream>
 
 SelectStrategy::SelectStrategy(size_t numWorkers)
-    : running_(false), numWorkers_(numWorkers), serverSocket_(-1), 
-      netManager_(nullptr), userManager_(nullptr), roomManager_(nullptr),
-      dmManager_(nullptr), clientHandler_(nullptr) {
+    : running_(false), numWorkers_(numWorkers), serverSocket_(-1), netManager_(nullptr), userManager_(nullptr), roomManager_(nullptr), dmManager_(nullptr), clientHandler_(nullptr) {
 }
 
 SelectStrategy::~SelectStrategy() {
@@ -20,8 +20,7 @@ void SelectStrategy::run(
     UserManager* userManager,
     ChatRoomManager* roomManager,
     DMManager* dmManager,
-    ClientHandler clientHandler
-) {
+    ClientHandler clientHandler) {
     running_ = true;
     serverSocket_ = serverSocket;
     netManager_ = netManager;
@@ -30,7 +29,7 @@ void SelectStrategy::run(
     dmManager_ = dmManager;
     clientHandler_ = clientHandler;
 
-    std::cout << "[SelectStrategy] Starting with " << numWorkers_ 
+    std::cout << "[SelectStrategy] Starting with " << numWorkers_
               << " worker threads and select() multiplexing" << std::endl;
 
     for (size_t i = 0; i < numWorkers_; ++i) {
@@ -55,10 +54,9 @@ void SelectStrategy::monitorThread(
     UserManager* userManager,
     ChatRoomManager* roomManager,
     DMManager* dmManager,
-    ClientHandler clientHandler
-) {
+    ClientHandler clientHandler) {
     fd_set readfds;
-    std::map<int, std::string> pendingClients; // Socket -> username (not yet registered)
+    std::map<int, std::string> pendingClients;  // Socket -> username (not yet registered)
 
     while (running_) {
         FD_ZERO(&readfds);
@@ -106,7 +104,7 @@ void SelectStrategy::monitorThread(
             int clientSocket = netManager->acceptClient(serverSocket);
             if (clientSocket >= 0) {
                 std::cout << "[SelectStrategy] New connection on socket " << clientSocket << std::endl;
-                pendingClients[clientSocket] = ""; // Wait for username
+                pendingClients[clientSocket] = "";  // Wait for username
             }
         }
 
@@ -131,7 +129,7 @@ void SelectStrategy::monitorThread(
                     } else {
                         // Send userID back to client
                         netManager->sendMessage(sock, std::to_string(userID));
-                        std::cout << "[SelectStrategy] Client registered: " << username 
+                        std::cout << "[SelectStrategy] Client registered: " << username
                                   << " (ID: " << userID << ", socket: " << sock << ")" << std::endl;
 
                         {
@@ -151,10 +149,10 @@ void SelectStrategy::monitorThread(
             for (const auto& pair : socketToUserID_) {
                 int sock = pair.first;
                 int userID = pair.second;
-                
+
                 if (FD_ISSET(sock, &readfds) && processingSockets_.find(sock) == processingSockets_.end()) {
                     processingSockets_.insert(sock);
-                    
+
                     {
                         std::lock_guard<std::mutex> qlock(queueMutex_);
                         workQueue_.push({sock, userID});
@@ -173,7 +171,7 @@ void SelectStrategy::monitorThread(
 
 void SelectStrategy::workerThread() {
     std::cout << "[SelectStrategy] Worker thread " << std::this_thread::get_id() << " started" << std::endl;
-    
+
     while (running_) {
         WorkItem item;
         {
@@ -196,24 +194,24 @@ void SelectStrategy::workerThread() {
 
         // Read a single message (one receive call per work item)
         std::string message = netManager_->receiveMessage(item.clientSocket);
-        
+
         // Returns false to signal client disconnect
         bool shouldContinue = clientHandler_(item.clientSocket, item.userID, message);
-        
+
         {
             std::lock_guard<std::mutex> lock(socketMapMutex_);
             // Remove from processing set
             processingSockets_.erase(item.clientSocket);
-            
+
             if (!shouldContinue) {
                 // Client disconnected or sent exit command - remove from monitoring
                 socketToUserID_.erase(item.clientSocket);
-                std::cout << "[SelectStrategy] Worker: client " << item.userID 
+                std::cout << "[SelectStrategy] Worker: client " << item.userID
                           << " disconnected (socket " << item.clientSocket << ")" << std::endl;
             }
         }
     }
-    
+
     std::cout << "[SelectStrategy] Worker thread " << std::this_thread::get_id() << " stopped" << std::endl;
 }
 

@@ -1,9 +1,10 @@
 #include "server/strategies/EpollStrategy.h"
 
+#include <fcntl.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include <fcntl.h>
+
 #include <cerrno>
 #include <cstring>
 #include <iostream>
@@ -13,8 +14,7 @@
 static constexpr int MAX_EVENTS = 64;
 
 EpollStrategy::EpollStrategy(NetworkManager* net, size_t numWorkers)
-    : net_(net), numWorkers_(numWorkers)
-{
+    : net_(net), numWorkers_(numWorkers) {
     epollFd_ = ::epoll_create1(EPOLL_CLOEXEC);
     if (epollFd_ < 0)
         throw std::runtime_error(std::string("[EpollStrategy] epoll_create1: ") + std::strerror(errno));
@@ -23,27 +23,36 @@ EpollStrategy::EpollStrategy(NetworkManager* net, size_t numWorkers)
         throw std::runtime_error(std::string("[EpollStrategy] pipe2: ") + std::strerror(errno));
 
     epoll_event ev{};
-    ev.events  = EPOLLIN;
+    ev.events = EPOLLIN;
     ev.data.fd = wakePipe_[0];
     ::epoll_ctl(epollFd_, EPOLL_CTL_ADD, wakePipe_[0], &ev);
 }
 
 EpollStrategy::~EpollStrategy() {
     stop();
-    if (epollFd_     >= 0) { ::close(epollFd_);      epollFd_     = -1; }
-    if (wakePipe_[0] >= 0) { ::close(wakePipe_[0]);  wakePipe_[0] = -1; }
-    if (wakePipe_[1] >= 0) { ::close(wakePipe_[1]);  wakePipe_[1] = -1; }
+    if (epollFd_ >= 0) {
+        ::close(epollFd_);
+        epollFd_ = -1;
+    }
+    if (wakePipe_[0] >= 0) {
+        ::close(wakePipe_[0]);
+        wakePipe_[0] = -1;
+    }
+    if (wakePipe_[1] >= 0) {
+        ::close(wakePipe_[1]);
+        wakePipe_[1] = -1;
+    }
 }
 
 void EpollStrategy::run(int serverSocket, IOEventCallback onEvent) {
-    running_      = true;
+    running_ = true;
     serverSocket_ = serverSocket;
-    onEvent_      = std::move(onEvent);
+    onEvent_ = std::move(onEvent);
 
     std::cout << "[EpollStrategy] Starting with " << numWorkers_ << " workers\n";
 
     epoll_event ev{};
-    ev.events  = EPOLLIN;
+    ev.events = EPOLLIN;
     ev.data.fd = serverSocket_;
     if (::epoll_ctl(epollFd_, EPOLL_CTL_ADD, serverSocket_, &ev) < 0)
         throw std::runtime_error(std::string("[EpollStrategy] epoll_ctl (server fd): ") + std::strerror(errno));
@@ -126,7 +135,7 @@ void EpollStrategy::monitorLoop() {
                     std::cout << "[EpollStrategy] New connection fd=" << clientSock << "\n";
                     {
                         std::lock_guard<std::mutex> lk(queueMutex_);
-                        workQueue_.push({ clientSock, true });
+                        workQueue_.push({clientSock, true});
                     }
                     queueCV_.notify_one();
                 }
@@ -136,7 +145,7 @@ void EpollStrategy::monitorLoop() {
             ++totalEvents_;
             {
                 std::lock_guard<std::mutex> lk(queueMutex_);
-                workQueue_.push({ fd, false });
+                workQueue_.push({fd, false});
             }
             queueCV_.notify_one();
         }
@@ -157,13 +166,13 @@ void EpollStrategy::workerLoop() {
         }
 
         if (item.isHandshake) {
-            onEvent_({ IOEvent::Type::NewConnection, item.socket, {} });
+            onEvent_({IOEvent::Type::NewConnection, item.socket, {}});
         } else {
             std::string data = net_->receiveMessage(item.socket);
             if (data.empty()) {
-                onEvent_({ IOEvent::Type::Disconnected, item.socket, {} });
+                onEvent_({IOEvent::Type::Disconnected, item.socket, {}});
             } else {
-                onEvent_({ IOEvent::Type::DataAvailable, item.socket, std::move(data) });
+                onEvent_({IOEvent::Type::DataAvailable, item.socket, std::move(data)});
                 epollRearm(item.socket);
             }
         }
@@ -174,7 +183,7 @@ void EpollStrategy::workerLoop() {
 
 bool EpollStrategy::epollAdd(int fd) {
     epoll_event ev{};
-    ev.events  = EPOLLIN | EPOLLET | EPOLLONESHOT;
+    ev.events = EPOLLIN | EPOLLET | EPOLLONESHOT;
     ev.data.fd = fd;
     if (::epoll_ctl(epollFd_, EPOLL_CTL_ADD, fd, &ev) < 0) {
         std::cerr << "[EpollStrategy] epoll_ctl ADD fd=" << fd
@@ -186,7 +195,7 @@ bool EpollStrategy::epollAdd(int fd) {
 
 bool EpollStrategy::epollRearm(int fd) {
     epoll_event ev{};
-    ev.events  = EPOLLIN | EPOLLET | EPOLLONESHOT;
+    ev.events = EPOLLIN | EPOLLET | EPOLLONESHOT;
     ev.data.fd = fd;
     if (::epoll_ctl(epollFd_, EPOLL_CTL_MOD, fd, &ev) < 0) {
         if (errno != EBADF && errno != ENOENT)

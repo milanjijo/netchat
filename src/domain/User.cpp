@@ -1,6 +1,6 @@
 #include "domain/User.h"
-#include<iostream>
 
+#include <iostream>
 
 User::User(int id, const std::string& name, int sock)
     : userID(id), username(name), socket(sock), roomID(-1) {}

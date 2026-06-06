@@ -1,6 +1,8 @@
 #include "network/PosixNetworkConnection.h"
-#include <unistd.h>
+
 #include <arpa/inet.h>
+#include <unistd.h>
+
 #include <stdexcept>
 
 int PosixNetworkConnection::startServer(int port) {
@@ -41,13 +43,13 @@ int PosixNetworkConnection::connectToServer(const std::string& ip, int port) {
 bool PosixNetworkConnection::sendMessage(int sock, const std::string& msg) {
     // Send message with length prefix (4 bytes for length, then message)
     uint32_t msgLen = static_cast<uint32_t>(msg.size());
-    uint32_t netLen = htonl(msgLen); // Convert to network byte order
-    
+    uint32_t netLen = htonl(msgLen);  // Convert to network byte order
+
     // Send length first
     if (send(sock, &netLen, sizeof(netLen), 0) != sizeof(netLen)) {
         return false;
     }
-    
+
     // Send message data
     if (msgLen > 0) {
         return send(sock, msg.c_str(), msgLen, 0) == (ssize_t)msgLen;
@@ -60,39 +62,39 @@ std::string PosixNetworkConnection::receiveMessage(int sock) {
     uint32_t netLen;
     ssize_t bytesRead = 0;
     ssize_t totalRead = 0;
-    
+
     while (totalRead < sizeof(netLen)) {
-        bytesRead = read(sock, reinterpret_cast<char*>(&netLen) + totalRead, 
-                       sizeof(netLen) - totalRead);
+        bytesRead = read(sock, reinterpret_cast<char*>(&netLen) + totalRead,
+                         sizeof(netLen) - totalRead);
         if (bytesRead <= 0) {
-            return ""; // Connection closed or error
+            return "";  // Connection closed or error
         }
         totalRead += bytesRead;
     }
-    
-    uint32_t msgLen = ntohl(netLen); // Convert from network byte order
-    
+
+    uint32_t msgLen = ntohl(netLen);  // Convert from network byte order
+
     // Sanity check (prevent reading huge messages)
-    if (msgLen > 1024 * 1024) { // 1MB limit
+    if (msgLen > 1024 * 1024) {  // 1MB limit
         return "";
     }
-    
+
     if (msgLen == 0) {
         return "";
     }
-    
+
     // Read message data
     std::string message;
     message.resize(msgLen);
     totalRead = 0;
-    
+
     while (totalRead < msgLen) {
         bytesRead = read(sock, &message[totalRead], msgLen - totalRead);
         if (bytesRead <= 0) {
-            return ""; // Connection closed or error
+            return "";  // Connection closed or error
         }
         totalRead += bytesRead;
     }
-    
+
     return message;
 }

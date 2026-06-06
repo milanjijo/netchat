@@ -2,7 +2,7 @@
 #include <string>
 
 class INetworkConnection {
-public:
+   public:
     virtual ~INetworkConnection() = default;
 
     // Server-side

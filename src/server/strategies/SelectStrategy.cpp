@@ -1,8 +1,10 @@
 #include "server/strategies/SelectStrategy.h"
-#include <iostream>
-#include <unistd.h>
+
 #include <sys/select.h>
+#include <unistd.h>
+
 #include <algorithm>
+#include <iostream>
 
 SelectStrategy::SelectStrategy(NetworkManager* net, size_t numWorkers) : numWorkers_(numWorkers), net_(net) {}
 
@@ -55,7 +57,6 @@ void SelectStrategy::removeSocket(int socket) {
     processingSockets_.erase(socket);
 }
 
-
 void SelectStrategy::monitorLoop(int serverSocket) {
     fd_set readfds;
 
@@ -87,15 +88,15 @@ void SelectStrategy::monitorLoop(int serverSocket) {
 
         if (FD_ISSET(serverSocket, &readfds)) {
             sockaddr_in addr{};
-            socklen_t   len = sizeof(addr);
-            int clientSock  = ::accept(serverSocket,
-                                       reinterpret_cast<sockaddr*>(&addr), &len);
+            socklen_t len = sizeof(addr);
+            int clientSock = ::accept(serverSocket,
+                                      reinterpret_cast<sockaddr*>(&addr), &len);
             if (clientSock >= 0) {
                 std::cout << "[SelectStrategy] New connection on fd " << clientSock << "\n";
 
                 {
                     std::lock_guard<std::mutex> qlock(queueMutex_);
-                    workQueue_.push({ clientSock, /*isHandshake=*/true });
+                    workQueue_.push({clientSock, /*isHandshake=*/true});
                 }
                 queueCV_.notify_one();
             }
@@ -104,13 +105,12 @@ void SelectStrategy::monitorLoop(int serverSocket) {
         {
             std::lock_guard<std::mutex> lock(socketsMutex_);
             for (int fd : watchedSockets_) {
-                if (FD_ISSET(fd, &readfds)
-                    && processingSockets_.count(fd) == 0) {
+                if (FD_ISSET(fd, &readfds) && processingSockets_.count(fd) == 0) {
                     // Guard against concurrent reads on the same fd
                     processingSockets_.insert(fd);
                     {
                         std::lock_guard<std::mutex> qlock(queueMutex_);
-                        workQueue_.push({ fd, /*isHandshake=*/false });
+                        workQueue_.push({fd, /*isHandshake=*/false});
                     }
                     queueCV_.notify_one();
                 }
@@ -138,15 +138,15 @@ void SelectStrategy::workerLoop() {
         }
 
         if (item.isHandshake) {
-            onEvent_({ IOEvent::Type::NewConnection, item.socket, {} });
+            onEvent_({IOEvent::Type::NewConnection, item.socket, {}});
         } else {
             std::string rawData = net_->receiveMessage(item.socket);
 
             IOEvent::Type evType = rawData.empty()
-                ? IOEvent::Type::Disconnected
-                : IOEvent::Type::DataAvailable;
+                                       ? IOEvent::Type::Disconnected
+                                       : IOEvent::Type::DataAvailable;
 
-            onEvent_({ evType, item.socket, std::move(rawData) });
+            onEvent_({evType, item.socket, std::move(rawData)});
 
             {
                 std::lock_guard<std::mutex> lock(socketsMutex_);

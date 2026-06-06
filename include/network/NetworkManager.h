@@ -1,12 +1,12 @@
 #pragma once
-#include <string>
 #include <netinet/in.h>
 
+#include <string>
 
 #include "network/INetworkConnection.h"
 
 class NetworkManager {
-public:
+   public:
     NetworkManager(INetworkConnection* connection);
 
     // Server-side
@@ -21,6 +21,6 @@ public:
     bool sendMessage(int sock, const std::string& msg);
     std::string receiveMessage(int sock);
 
-private:
+   private:
     INetworkConnection* connection_;
 };
